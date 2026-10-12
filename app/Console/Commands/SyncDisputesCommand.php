@@ -4,6 +4,8 @@ namespace App\Console\Commands;
 
 use App\Actions\Med\SyncAccountDisputesAction;
 use App\Actions\Med\SyncDisputeAction;
+use App\Enums\SourceStatus;
+use App\Jobs\BuildDisputeDossier;
 use App\Models\Dispute;
 use App\Models\WooviAccount;
 use Illuminate\Console\Command;
@@ -16,6 +18,8 @@ use Throwable;
  */
 class SyncDisputesCommand extends Command
 {
+    private const PARTIAL_RETRY_HOURS = 6;
+
     protected $signature = 'med:sincronizar
         {--conta= : ID da conta Woovi (woovi_accounts.id); sem ela, todas as ativas}
         {--dias=30 : Janela da varredura de disputas novas}';
@@ -58,7 +62,26 @@ class SyncDisputesCommand extends Command
             }
         }
 
-        $this->info("Contas: {$accounts->count()} · casos abertos relidos: {$open->count()} · falhas: {$failures}");
+        // Rede de segurança do dossiê: caso aberto sem dossiê (criado antes da opção
+        // ser ligada, ou cujo job se perdeu) ou com dossiê incompleto (fonte que falhou
+        // ou ficou esperando outra) entra na fila - só o que falta é buscado de novo.
+        $withoutDossier = 0;
+
+        if (config('med.dossie.habilitado')) {
+            // "partial" pode ser permanente (rota da venda ainda não existe, conta sem a
+            // feature "MED API"): esse volta a cada 6h, não de hora em hora.
+            $open->filter(fn (Dispute $dispute): bool => $dispute->dossier_built_at === null
+                    || $dispute->dossier_status === 'failed'
+                    || (($dispute->dossier_status === 'partial' || $dispute->sources()->where('status', SourceStatus::FAILED->value)->exists())
+                        && $dispute->dossier_built_at->lte(now()->subHours(self::PARTIAL_RETRY_HOURS))))
+                ->filter(fn (Dispute $dispute): bool => ! $dispute->fresh()?->status->isClosed())
+                ->each(function (Dispute $dispute) use (&$withoutDossier): void {
+                    BuildDisputeDossier::dispatch($dispute->id);
+                    $withoutDossier++;
+                });
+        }
+
+        $this->info("Contas: {$accounts->count()} · casos abertos relidos: {$open->count()} · dossiês pedidos: {$withoutDossier} · falhas: {$failures}");
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;
     }

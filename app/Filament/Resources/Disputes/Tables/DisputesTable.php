@@ -46,6 +46,21 @@ class DisputesTable
                     ->description(fn (Dispute $record): ?string => self::hoursLeftLabel($record))
                     ->color(fn (Dispute $record): string => $record->deadlineColor())
                     ->sortable(),
+                TextColumn::make('dossier_status')
+                    ->label('Dossiê')
+                    ->badge()
+                    ->state(fn (Dispute $record): ?string => match (true) {
+                        $record->dossier_match === null => null,
+                        (bool) data_get($record->dossier_match, 'ready') => 'Conferido',
+                        data_get($record->dossier_match, 'divergent', []) !== [] => 'Divergente',
+                        default => 'Parcial',
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'Conferido' => 'success',
+                        'Divergente' => 'danger',
+                        default => 'warning',
+                    })
+                    ->placeholder('—'),
                 TextColumn::make('evidences_count')
                     ->label('Arquivos')
                     ->badge()

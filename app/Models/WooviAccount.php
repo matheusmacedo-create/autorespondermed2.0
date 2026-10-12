@@ -31,6 +31,7 @@ class WooviAccount extends Model
         'contact_email',
         'contact_phone',
         'is_active',
+        'auto_send',
         'webhooks_registered_at',
         'last_synced_at',
     ];
@@ -46,6 +47,7 @@ class WooviAccount extends Model
             'app_id' => 'encrypted',
             'source' => WooviAccountSource::class,
             'is_active' => 'boolean',
+            'auto_send' => 'boolean',
             'webhooks_registered_at' => 'datetime',
             'last_synced_at' => 'datetime',
         ];

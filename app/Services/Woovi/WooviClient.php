@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\Http;
 
 /**
  * Cliente da API da Woovi para uma conta (AppID). Só os endpoints que o MED usa:
- * disputas, arquivos e webhooks. Contratos conferidos na doc pública e no
+ * disputas, arquivos, webhooks e - para o dossiê automático - transação,
+ * cobrança, devoluções e comprovante. Contratos conferidos na doc pública e no
  * OpenAPI do repo Open-Pix/woovi-developers em 12/10/2026.
  */
 class WooviClient
@@ -32,6 +33,84 @@ class WooviClient
         $response = $this->send(fn (PendingRequest $http) => $http->get('/api/v1/dispute/'.rawurlencode($endToEndId)), 'a consulta da disputa');
 
         return (array) ($response->json('dispute') ?? []);
+    }
+
+    /**
+     * GET /api/v1/transaction/{id} - o id aceita o endToEndId (escopo TRANSACTION_GET).
+     * É a fonte do valor, do horário e do pagador: o GET /dispute de um MED não traz
+     * nenhum dos três.
+     *
+     * @return array<string, mixed>
+     */
+    public function getTransaction(string $endToEndId): array
+    {
+        $response = $this->send(fn (PendingRequest $http) => $http->get('/api/v1/transaction/'.rawurlencode($endToEndId)), 'a consulta da transação');
+
+        return (array) ($response->json('transaction') ?? []);
+    }
+
+    /**
+     * GET /api/v1/charge/{id} - aceita o correlationID (escopo CHARGE_GET).
+     *
+     * @return array<string, mixed>
+     */
+    public function getCharge(string $correlationId): array
+    {
+        $response = $this->send(fn (PendingRequest $http) => $http->get('/api/v1/charge/'.rawurlencode($correlationId)), 'a consulta da cobrança');
+
+        return (array) ($response->json('charge') ?? []);
+    }
+
+    /**
+     * GET /api/v1/charge/{id}/refund - devoluções já feitas na cobrança
+     * (escopo CHARGE_REFUND_GET_LIST).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getChargeRefunds(string $correlationId): array
+    {
+        $response = $this->send(fn (PendingRequest $http) => $http->get('/api/v1/charge/'.rawurlencode($correlationId).'/refund'), 'a consulta das devoluções');
+
+        return array_values(array_filter((array) ($response->json('refunds') ?? []), 'is_array'));
+    }
+
+    /**
+     * GET /api/v1/receipt/pix-in/{endToEndId} - comprovante oficial do Pix recebido,
+     * em PDF (bytes).
+     */
+    public function getPixInReceipt(string $endToEndId): string
+    {
+        $response = $this->send(
+            fn (PendingRequest $http) => $http->accept('application/pdf')->get('/api/v1/receipt/pix-in/'.rawurlencode($endToEndId)),
+            'o comprovante do Pix',
+        );
+
+        $body = $response->body();
+
+        if (! str_starts_with($body, '%PDF')) {
+            throw new WooviException('Woovi devolveu o comprovante num formato que não é PDF.', $response->status());
+        }
+
+        return $body;
+    }
+
+    /**
+     * GET /api/v1/funds-recovery/{endToEndId}/disputes - disputas (MED recebido) da
+     * conta ligadas à recuperação de fundos, com o `situationType` (SCAM,
+     * ACCOUNT_TAKEOVER...) que o webhook e o GET /dispute não trazem. Exige a
+     * feature "MED API" na conta (sem ela, 403). Contrato só na doc (não está no
+     * OpenAPI): a resposta é uma lista.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getFundsRecoveryDisputes(string $endToEndId): array
+    {
+        $response = $this->send(fn (PendingRequest $http) => $http->get('/api/v1/funds-recovery/'.rawurlencode($endToEndId).'/disputes'), 'a consulta da recuperação de fundos');
+
+        $json = $response->json();
+        $list = is_array($json) && array_is_list($json) ? $json : (array) ($json['disputes'] ?? []);
+
+        return array_values(array_filter($list, 'is_array'));
     }
 
     /**

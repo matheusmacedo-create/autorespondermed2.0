@@ -54,6 +54,44 @@ return [
     ],
 
     /*
+    | Dossiê automático: ao receber o MED, o sistema puxa sozinho a transação, a
+    | cobrança, as devoluções e o comprovante oficial na Woovi (AppID da conta), a
+    | venda e o cadastro na plataforma (unico-api) e o status do KYC, e já monta as
+    | evidências. Quando o seller responde, cruza o que ele mandou com o dossiê,
+    | completa o que faltava e (com o envio automático) envia. Desligado por padrão:
+    | ligar depois de confirmar com uma chamada real que o AppID das subcontas tem
+    | TRANSACTION_GET e CHARGE_GET.
+    */
+    'dossie' => [
+        'habilitado' => (bool) env('MED_DOSSIE_HABILITADO', false),
+        // Comprovante oficial em PDF (GET /api/v1/receipt/pix-in/{endToEndId}).
+        'comprovante_woovi' => (bool) env('MED_DOSSIE_COMPROVANTE_WOOVI', true),
+    ],
+
+    /*
+    | Envio automático à Woovi logo depois da defesa do seller. Só acontece com
+    | TODAS as travas: ligado aqui, opt-in na conta (woovi_accounts.auto_send),
+    | dossiê com a conferência ok, nenhuma devolução já feita, KYC do seller
+    | aprovado, valor até o teto e alegação na lista permitida (conta invadida: o
+    | "seller" pode ser o golpista, e isso não sai sozinho). Fora
+    | disso o caso vai para a fila do analista, com o motivo na linha do tempo.
+    */
+    'envio_automatico' => [
+        'habilitado' => (bool) env('MED_ENVIO_AUTOMATICO', false),
+        'teto_centavos' => (int) env('MED_ENVIO_AUTOMATICO_TETO_CENTAVOS', 100000),
+        // Lista branca da alegação (situationType): só estas saem no automático. Conta
+        // invadida (ACCOUNT_TAKEOVER, FRAUDULENT_ACCESS), coação (COERCION), UNKNOWN,
+        // OTHER e qualquer valor novo da Woovi vão para o analista.
+        'situacoes_permitidas' => array_values(array_filter(array_map('trim', explode(',', (string) env('MED_ENVIO_AUTOMATICO_SITUACOES_PERMITIDAS', 'SCAM'))))),
+        // A Woovi só informa a alegação (situationType) pela rota de recuperação de
+        // fundos, que exige a feature "MED API" na conta. Sem a alegação não dá para
+        // saber se é conta invadida: por padrão, sem ela não há envio automático.
+        'exigir_situacao' => (bool) env('MED_ENVIO_AUTOMATICO_EXIGIR_SITUACAO', true),
+        // Motivo (texto livre da disputa) que também tira do automático.
+        'motivos_bloqueados' => array_values(array_filter(array_map('trim', explode(',', (string) env('MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS', 'invad,invas,takeover,acesso indevido,sequestr,coação,coacao,coercion,extors,roubad,furtad,clonad,hacke'))))),
+    ],
+
+    /*
     | Idioma do painel admin, independente do APP_LOCALE (mesmo racional do KYC).
     */
     'panel_locale' => env('MED_PANEL_LOCALE', 'pt_BR'),

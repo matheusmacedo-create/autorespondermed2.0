@@ -7,13 +7,14 @@ use Database\Factories\DisputeEvidenceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class DisputeEvidence extends Model
 {
     /** @use HasFactory<DisputeEvidenceFactory> */
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $table = 'dispute_evidences';
 
@@ -26,7 +27,9 @@ class DisputeEvidence extends Model
         'original_name',
         'mime_type',
         'size',
+        'content_hash',
         'uploaded_by',
+        'source',
         'correlation_id',
         'woovi_file_id',
         'woovi_url',

@@ -4,6 +4,7 @@ namespace App\Actions\Med;
 
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
+use App\Jobs\BuildDisputeDossier;
 use App\Models\Dispute;
 use App\Models\WooviAccount;
 use App\Services\DiscordNotificationService;
@@ -128,6 +129,17 @@ class IngestDisputeAction
 
             $this->sellerNotifier->disputeOpened($dispute);
             $this->discord->disputeReceived($dispute);
+
+            // Dossiê automático: o seller ainda nem abriu o link e o caso já vai sendo
+            // montado. Best-effort - nunca pode derrubar a ingestão (o retry do webhook
+            // veria o caso como já criado e o seller ficaria sem aviso).
+            if (config('med.dossie.habilitado')) {
+                // Closure com corpo: o PendingDispatch é enfileirado no __destruct, e com
+                // arrow function isso aconteceria fora do rescue.
+                rescue(function () use ($dispute): void {
+                    BuildDisputeDossier::dispatch($dispute->id);
+                }, report: true);
+            }
 
             return $dispute;
         }

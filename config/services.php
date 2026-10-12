@@ -72,6 +72,30 @@ return [
         'key' => env('API_KEY'),
     ],
 
+    // unico-api (plataforma ÚnicoPag), chamado PELO MED para montar o dossiê. Mesmo
+    // esquema de autenticação do KYC (X-API-Key + Bearer). O ideal é uma integração
+    // própria `med`, só de leitura, no unico-api - a chave `kyc` também escreve.
+    'unicopag' => [
+        'base_url' => env('UNICOPAG_API_BASE_URL', 'https://api.cloud.unicopag.com.br'),
+        'key' => env('UNICOPAG_API_KEY'),
+        'timeout' => (int) env('UNICOPAG_API_TIMEOUT', 8),
+        // Cadastro do seller - rota que já existe (PR #118 do unico-api, KB do KYC 8.22).
+        // Vazio desliga. Placeholder: {account_id}.
+        'register_endpoint' => env('UNICOPAG_REGISTER_ENDPOINT', '/api/kyc-panel/accounts/{account_id}/register'),
+        // Venda pelo identificador da Woovi - rota que AINDA NÃO EXISTE no unico-api
+        // (contrato em doc/MED_KNOWLEDGE_BASE.md). Vazio desliga. Placeholders:
+        // {account_id}, {correlation_id}, {txid}, {end_to_end_id}.
+        'sale_endpoint' => env('UNICOPAG_SALE_ENDPOINT'),
+    ],
+
+    // KYC (unicopag-kyc): status do onboarding do seller, pela rota pública
+    // GET /api/onboarding/status?account_id= (só status, sem documentos - de propósito:
+    // documento do KYC, e a selfie mais ainda, não vai para evidência de MED).
+    'kyc' => [
+        'base_url' => env('KYC_BASE_URL', 'https://kyc.unicopag.com.br'),
+        'timeout' => (int) env('KYC_TIMEOUT', 5),
+    ],
+
     // Kapso - WhatsApp oficial da ÚnicoPag (o mesmo número e a mesma chave de projeto do
     // KYC). Sem api_key + phone_number_id o aviso por WhatsApp fica desligado e o seller
     // é avisado só por e-mail.

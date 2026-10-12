@@ -10,6 +10,7 @@ use App\Services\DiscordNotificationService;
 use App\Services\DisputeEventRecorder;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
+use App\Support\DisputeLock;
 use Illuminate\Support\Facades\URL;
 use RuntimeException;
 
@@ -26,19 +27,35 @@ class SendEvidenceToWooviAction
 {
     public function __construct(
         private readonly GenerateDefenseLetterAction $generateDefenseLetter,
+        private readonly MatchDossierAction $match,
         private readonly DisputeEventRecorder $events,
         private readonly DiscordNotificationService $discord,
     ) {}
 
     /**
+     * @param  string  $source  analyst (clique no painel) | system (envio automático)
      * @return int quantos documentos foram enviados
      */
-    public function handle(Dispute $dispute, ?int $userId = null): int
+    public function handle(Dispute $dispute, ?int $userId = null, string $source = 'analyst'): int
+    {
+        // Um envio por caso de cada vez, e nunca durante a montagem do dossiê: o
+        // clique do analista, o envio automático e o retry de um job podiam mandar
+        // duas cartas diferentes, ou subir um documento que a montagem estava trocando.
+        return DisputeLock::run($dispute, fn () => $this->send($dispute->fresh() ?? $dispute, $userId, $source), waitSeconds: 0);
+    }
+
+    private function send(Dispute $dispute, ?int $userId, string $source): int
     {
         $dispute->loadMissing('wooviAccount');
 
         if (! $dispute->status->canSendToWoovi()) {
             throw new RuntimeException("Caso {$dispute->status->label()}: não aceita mais evidência.");
+        }
+
+        // A carta afirma os itens ok da conferência: refeita aqui, com as evidências de
+        // agora, ela não cita documento que saiu do caso depois da última montagem.
+        if ($dispute->dossier_match !== null) {
+            $this->match->handle($dispute);
         }
 
         $this->generateDefenseLetter->handle($dispute);
@@ -61,7 +78,7 @@ class SendEvidenceToWooviAction
 
             $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
         } catch (WooviException $e) {
-            $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode]);
+            $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode], $source);
 
             throw $e;
         }
@@ -87,7 +104,7 @@ class SendEvidenceToWooviAction
             $dispute,
             sprintf('%d documento(s) enviados à Woovi (modo %s).', $pending->count(), $mode),
             ['evidence_ids' => $pending->pluck('id')->all(), 'mode' => $mode],
-            source: 'analyst',
+            source: $source,
         );
 
         return $pending->count();
@@ -153,13 +170,13 @@ class SendEvidenceToWooviAction
      * @param  iterable<DisputeEvidence>  $pending
      * @param  array<string, mixed>  $context
      */
-    private function fail(Dispute $dispute, iterable $pending, string $error, array $context): void
+    private function fail(Dispute $dispute, iterable $pending, string $error, array $context, string $source): void
     {
         foreach ($pending as $evidence) {
             $evidence->forceFill(['last_error' => $error])->save();
         }
 
-        $this->events->record(DisputeEventType::EVIDENCE_SEND_FAILED, $dispute, $error, $context, level: 'error', source: 'analyst');
+        $this->events->record(DisputeEventType::EVIDENCE_SEND_FAILED, $dispute, $error, $context, level: 'error', source: $source);
         $this->discord->evidenceSendFailed($dispute, $error);
     }
 }

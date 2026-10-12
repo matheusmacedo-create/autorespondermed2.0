@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Actions\Med\BuildDossierAction;
 use App\Models\Dispute;
 use Illuminate\Console\Command;
+use RuntimeException;
 
 /**
  * Monta (ou remonta) o dossiê automático na hora, sem fila - para um caso ou para
@@ -35,8 +36,19 @@ class BuildDossierCommand extends Command
             ->when($this->option('abertos'), fn ($query) => $query->open())
             ->get();
 
+        $busy = 0;
+
         foreach ($disputes as $dispute) {
-            $build->handle($dispute, (bool) $this->option('refazer'));
+            try {
+                $build->handle($dispute, (bool) $this->option('refazer'), waitSeconds: 10);
+            } catch (RuntimeException $e) {
+                // Caso ocupado (envio ou outra montagem): segue o lote.
+                $busy++;
+                $this->warn("Caso {$dispute->id}: {$e->getMessage()}");
+
+                continue;
+            }
+
             $match = (array) $dispute->fresh()->dossier_match;
 
             $this->line(sprintf(
@@ -48,8 +60,8 @@ class BuildDossierCommand extends Command
             ));
         }
 
-        $this->info("{$disputes->count()} caso(s) processado(s).");
+        $this->info(($disputes->count() - $busy)." caso(s) processado(s), {$busy} ocupado(s).");
 
-        return self::SUCCESS;
+        return $busy === 0 ? self::SUCCESS : self::FAILURE;
     }
 }

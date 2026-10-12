@@ -18,6 +18,8 @@ use Throwable;
  */
 class SyncDisputesCommand extends Command
 {
+    private const PARTIAL_RETRY_HOURS = 6;
+
     protected $signature = 'med:sincronizar
         {--conta= : ID da conta Woovi (woovi_accounts.id); sem ela, todas as ativas}
         {--dias=30 : Janela da varredura de disputas novas}';
@@ -66,9 +68,12 @@ class SyncDisputesCommand extends Command
         $withoutDossier = 0;
 
         if (config('med.dossie.habilitado')) {
+            // "partial" pode ser permanente (rota da venda ainda não existe, conta sem a
+            // feature "MED API"): esse volta a cada 6h, não de hora em hora.
             $open->filter(fn (Dispute $dispute): bool => $dispute->dossier_built_at === null
-                    || in_array($dispute->dossier_status, ['failed', 'partial'], true)
-                    || $dispute->sources()->where('status', SourceStatus::FAILED->value)->exists())
+                    || $dispute->dossier_status === 'failed'
+                    || (($dispute->dossier_status === 'partial' || $dispute->sources()->where('status', SourceStatus::FAILED->value)->exists())
+                        && $dispute->dossier_built_at->lte(now()->subHours(self::PARTIAL_RETRY_HOURS))))
                 ->filter(fn (Dispute $dispute): bool => ! $dispute->fresh()?->status->isClosed())
                 ->each(function (Dispute $dispute) use (&$withoutDossier): void {
                     BuildDisputeDossier::dispatch($dispute->id);

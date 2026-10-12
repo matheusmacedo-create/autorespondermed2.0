@@ -86,7 +86,9 @@ class AutoSendDisputeAction
         $value = $dispute->value ?? data_get($dispute->sourcePayload(DossierSource::WOOVI_TRANSACTION), 'value');
         $ceiling = (int) config('med.envio_automatico.teto_centavos');
         $situation = strtoupper(trim((string) $dispute->situation_type));
-        $reason = mb_strtolower((string) $dispute->dispute_reason);
+        // O motivo pode vir na disputa ou só na recuperação de fundos: confere os dois.
+        $reason = mb_strtolower(trim($dispute->dispute_reason.' '.data_get($dispute->sourcePayload(DossierSource::WOOVI_FUNDS_RECOVERY), 'disputeReason')));
+        $allowed = array_map(fn ($s): string => strtoupper(trim((string) $s)), (array) config('med.envio_automatico.situacoes_permitidas'));
         $refunds = $this->source($dispute, DossierSource::WOOVI_REFUNDS);
         $kyc = $this->source($dispute, DossierSource::KYC_STATUS);
 
@@ -98,15 +100,17 @@ class AutoSendDisputeAction
             $match !== [] && ! ($match['ready'] ?? false) ? 'conferência com pendência ou divergência' : null,
             ($checks['no_refund']['status'] ?? null) !== MatchDossierAction::OK ? 'devoluções da cobrança não conferidas ou já existentes' : null,
             ! $this->freshSince($refunds, $dispute) ? 'devoluções não relidas depois da defesa do seller' : null,
-            $kyc !== null && $kyc->status !== SourceStatus::NOT_CONFIGURED
+            $kyc?->status === SourceStatus::SKIPPED ? 'conta sem vínculo com a plataforma (unicopag_account_id): KYC não conferido' : null,
+            $kyc !== null && ! in_array($kyc->status, [SourceStatus::NOT_CONFIGURED, SourceStatus::SKIPPED], true)
                 && (($checks['kyc_approved']['status'] ?? null) !== MatchDossierAction::OK || ! $this->freshSince($kyc, $dispute))
                 ? 'KYC do seller não confirmado como aprovado agora' : null,
             ! is_numeric($value) ? 'valor do caso desconhecido' : null,
             is_numeric($value) && (int) $value > $ceiling ? 'valor acima do teto do envio automático' : null,
             $situation === '' && config('med.envio_automatico.exigir_situacao') ? 'alegação do MED (situationType) não informada pela Woovi' : null,
-            $situation !== '' && in_array($situation, array_map('strtoupper', (array) config('med.envio_automatico.situacoes_bloqueadas')), true)
+            // Lista branca: alegação nova, UNKNOWN ou OTHER vai para o analista.
+            $situation !== '' && ! in_array($situation, $allowed, true)
                 ? "alegação {$dispute->situation_type} exige análise humana" : null,
-            collect((array) config('med.envio_automatico.motivos_bloqueados'))->contains(fn (string $word): bool => $word !== '' && str_contains($reason, mb_strtolower($word)))
+            collect((array) config('med.envio_automatico.motivos_bloqueados'))->contains(fn (string $word): bool => trim($word) !== '' && str_contains($reason, mb_strtolower(trim($word))))
                 ? 'motivo da disputa indica conta invadida ou coação' : null,
         ]));
     }

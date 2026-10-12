@@ -12,8 +12,10 @@ use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
 use App\Enums\EvidenceKind;
 use App\Models\Dispute;
+use App\Models\DisputeEvidence;
 use App\Services\DisputeEventRecorder;
 use App\Services\SellerNotifier;
+use App\Support\DisputeLock;
 use App\Support\Permissions;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
@@ -23,6 +25,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Http\UploadedFile;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -184,20 +187,44 @@ class DisputeActions
                         ->all()),
                 Textarea::make('reason')->label('Por quê')->required()->maxLength(500)->rows(2),
             ])
-            ->action(function (array $data, ViewRecord $livewire, DisputeEventRecorder $events): void {
+            ->action(function (array $data, ViewRecord $livewire, DisputeEventRecorder $events, MatchDossierAction $match): void {
                 $dispute = $livewire->getRecord();
-                $evidence = $dispute->evidences()->whereNull('sent_at')->whereKey($data['evidence_id'])->first();
 
-                if (! $evidence || $evidence->kind === EvidenceKind::DEFENSE_LETTER) {
+                // Sob a trava do caso: descartar no meio de um envio mandaria à Woovi (e
+                // marcaria como enviado) um documento que o analista acabou de recusar.
+                try {
+                    $evidence = DisputeLock::run($dispute, function () use ($dispute, $data, $events, $match): ?DisputeEvidence {
+                        $evidence = $dispute->evidences()->whereNull('sent_at')->whereKey($data['evidence_id'])->first();
+
+                        if (! $evidence || $evidence->kind === EvidenceKind::DEFENSE_LETTER) {
+                            return null;
+                        }
+
+                        // Soft delete: some do caso e do envio; o arquivo fica para auditoria.
+                        $evidence->delete();
+
+                        $events->record(DisputeEventType::EVIDENCE_DISCARDED, $dispute, "Descartada: {$evidence->kind->label()} ({$evidence->original_name}). Motivo: {$data['reason']}", ['source' => $evidence->source], source: 'analyst');
+
+                        // A conferência contava com o documento (ex.: comprovante de entrega
+                        // da plataforma): refeita, a carta não afirma o que saiu do caso.
+                        if ($dispute->dossier_match !== null) {
+                            $match->handle($dispute);
+                        }
+
+                        return $evidence;
+                    }, waitSeconds: 0);
+                } catch (RuntimeException $e) {
+                    Notification::make()->warning()->title('Caso ocupado')->body($e->getMessage())->send();
+
+                    return;
+                }
+
+                if ($evidence === null) {
                     Notification::make()->warning()->title('Evidência não pode ser descartada')->send();
 
                     return;
                 }
 
-                // Soft delete: some do caso e do envio; o arquivo fica para auditoria.
-                $evidence->delete();
-
-                $events->record(DisputeEventType::EVIDENCE_DISCARDED, $dispute, "Descartada: {$evidence->kind->label()} ({$evidence->original_name}). Motivo: {$data['reason']}", ['source' => $evidence->source], source: 'analyst');
                 Notification::make()->success()->title('Evidência descartada')->send();
                 $livewire->getRecord()->refresh();
             });
@@ -213,7 +240,15 @@ class DisputeActions
             ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
                 && ! $livewire->getRecord()->status->isClosed())
             ->action(function (ViewRecord $livewire, BuildDossierAction $build): void {
-                $dispute = $build->handle($livewire->getRecord(), refresh: true);
+                try {
+                    // Espera curta: é uma requisição web, e quem segura a trava pode ser
+                    // um envio à Woovi ou outra montagem.
+                    $dispute = $build->handle($livewire->getRecord(), refresh: true, waitSeconds: 5);
+                } catch (RuntimeException $e) {
+                    Notification::make()->warning()->title('Caso ocupado')->body($e->getMessage())->send();
+
+                    return;
+                }
 
                 Notification::make()
                     ->title('Dossiê montado: '.((bool) data_get($dispute->dossier_match, 'ready') ? 'conferência ok' : 'com pendências'))

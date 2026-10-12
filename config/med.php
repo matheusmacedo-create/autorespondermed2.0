@@ -71,21 +71,24 @@ return [
     /*
     | Envio automático à Woovi logo depois da defesa do seller. Só acontece com
     | TODAS as travas: ligado aqui, opt-in na conta (woovi_accounts.auto_send),
-    | dossiê com a conferência ok, nenhuma devolução já feita, KYC do seller não
-    | reprovado, valor até o teto e alegação fora das situações em que a defesa
-    | automática é perigosa (conta invadida: o "seller" pode ser o golpista). Fora
+    | dossiê com a conferência ok, nenhuma devolução já feita, KYC do seller
+    | aprovado, valor até o teto e alegação na lista permitida (conta invadida: o
+    | "seller" pode ser o golpista, e isso não sai sozinho). Fora
     | disso o caso vai para a fila do analista, com o motivo na linha do tempo.
     */
     'envio_automatico' => [
         'habilitado' => (bool) env('MED_ENVIO_AUTOMATICO', false),
         'teto_centavos' => (int) env('MED_ENVIO_AUTOMATICO_TETO_CENTAVOS', 100000),
-        'situacoes_bloqueadas' => array_filter(explode(',', (string) env('MED_ENVIO_AUTOMATICO_SITUACOES_BLOQUEADAS', 'ACCOUNT_TAKEOVER,FRAUDULENT_ACCESS,COERCION'))),
+        // Lista branca da alegação (situationType): só estas saem no automático. Conta
+        // invadida (ACCOUNT_TAKEOVER, FRAUDULENT_ACCESS), coação (COERCION), UNKNOWN,
+        // OTHER e qualquer valor novo da Woovi vão para o analista.
+        'situacoes_permitidas' => array_values(array_filter(array_map('trim', explode(',', (string) env('MED_ENVIO_AUTOMATICO_SITUACOES_PERMITIDAS', 'SCAM'))))),
         // A Woovi só informa a alegação (situationType) pela rota de recuperação de
         // fundos, que exige a feature "MED API" na conta. Sem a alegação não dá para
         // saber se é conta invadida: por padrão, sem ela não há envio automático.
         'exigir_situacao' => (bool) env('MED_ENVIO_AUTOMATICO_EXIGIR_SITUACAO', true),
         // Motivo (texto livre da disputa) que também tira do automático.
-        'motivos_bloqueados' => array_filter(array_map('trim', explode(',', (string) env('MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS', 'invad,takeover,acesso indevido,sequestro,coação,coacao,coercion')))),
+        'motivos_bloqueados' => array_values(array_filter(array_map('trim', explode(',', (string) env('MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS', 'invad,invas,takeover,acesso indevido,sequestr,coação,coacao,coercion,extors,roubad,furtad,clonad,hacke'))))),
     ],
 
     /*

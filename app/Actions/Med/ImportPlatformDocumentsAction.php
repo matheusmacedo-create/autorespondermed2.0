@@ -6,6 +6,7 @@ use App\Enums\DisputeEventType;
 use App\Enums\EvidenceKind;
 use App\Models\Dispute;
 use App\Services\DisputeEventRecorder;
+use App\Support\Mask;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Throwable;
@@ -64,14 +65,15 @@ class ImportPlatformDocumentsAction
                     throw new \RuntimeException("arquivo recusado (HTTP {$response->status()}, {$mime}, ".strlen($body).' bytes)');
                 }
             } catch (Throwable $e) {
-                $this->events->record(DisputeEventType::DOSSIER_SOURCE_FAILED, $dispute, 'Documento da plataforma não importado: '.$e->getMessage(), ['url_host' => parse_url($url, PHP_URL_HOST)], level: 'warning');
+                // A mensagem do Guzzle traz a URL inteira - pré-assinada, vale como senha.
+                $this->events->record(DisputeEventType::DOSSIER_SOURCE_FAILED, $dispute, 'Documento da plataforma não importado: '.Mask::urls($e->getMessage()), ['url_host' => parse_url($url, PHP_URL_HOST)], level: 'warning');
 
                 continue;
             }
 
             $kind = self::KINDS[strtolower((string) ($document['kind'] ?? ''))] ?? EvidenceKind::OTHER;
 
-            $this->storeSystemEvidence->handle(
+            $evidence = $this->storeSystemEvidence->handle(
                 $dispute,
                 'unicopag_doc_'.substr(hash('sha256', $this->stableKey($document, $url)), 0, 16),
                 $kind,
@@ -81,7 +83,10 @@ class ImportPlatformDocumentsAction
                 (string) ($document['description'] ?? 'Documento da venda registrado na plataforma ÚnicoPag'),
             );
 
-            $imported++;
+            // Só conta o que entrou ou mudou: o mesmo documento de novo não é novidade.
+            if ($evidence->wasRecentlyCreated || $evidence->wasChanged('content_hash')) {
+                $imported++;
+            }
         }
 
         return $imported;

@@ -14,6 +14,7 @@ use App\Services\Unicopag\UnicopagClient;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
 use App\Support\DisputeLock;
+use App\Support\Mask;
 use Closure;
 use Throwable;
 
@@ -45,9 +46,9 @@ class BuildDossierAction
     /**
      * @param  array<int, DossierSource>  $refreshSources
      */
-    public function handle(Dispute $dispute, bool $refresh = false, array $refreshSources = []): Dispute
+    public function handle(Dispute $dispute, bool $refresh = false, array $refreshSources = [], int $waitSeconds = 60): Dispute
     {
-        return DisputeLock::run($dispute, fn () => $this->build($dispute->refresh(), $refresh, $refreshSources));
+        return DisputeLock::run($dispute, fn () => $this->build($dispute->refresh(), $refresh, $refreshSources), $waitSeconds);
     }
 
     /**
@@ -158,8 +159,14 @@ class BuildDossierAction
         });
 
         $this->fetch($dispute, DossierSource::KYC_STATUS, $again, function () use ($accountId) {
-            if (! $this->kyc->isConfigured() || $accountId === '') {
+            if (! $this->kyc->isConfigured()) {
                 return [SourceStatus::NOT_CONFIGURED, null];
+            }
+
+            // KYC ligado e conta sem vínculo com a plataforma: não conferido, que é
+            // diferente de "KYC desligado" - o envio automático trava nisso.
+            if ($accountId === '') {
+                return [SourceStatus::SKIPPED, null];
             }
 
             $status = $this->kyc->onboardingStatus($accountId);
@@ -236,14 +243,17 @@ class BuildDossierAction
     {
         $row = DisputeSource::query()->firstOrNew(['dispute_id' => $dispute->id, 'source' => $source->value]);
 
-        if ($row->exists && ! $again($source) && ! $row->status->shouldRetry()) {
+        // Ok com erro guardado = a última releitura falhou: tenta de novo, senão o erro
+        // (e o dossiê "partial") nunca sai.
+        if ($row->exists && ! $again($source) && ! $row->status->shouldRetry() && blank($row->error)) {
             return $row->status === SourceStatus::OK ? (array) $row->payload : null;
         }
 
         try {
             [$status, $payload] = $fetch();
         } catch (Throwable $e) {
-            $error = mb_substr($e->getMessage(), 0, 1000);
+            // Sem URL: a do KYC leva o account_id, e a de arquivo pode ser pré-assinada.
+            $error = mb_substr(Mask::urls($e->getMessage()), 0, 1000);
 
             $this->events->record(
                 DisputeEventType::DOSSIER_SOURCE_FAILED,

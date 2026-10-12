@@ -69,4 +69,17 @@ class Mask
 
         return $a === '' || $b === '' ? null : $a === $b;
     }
+
+    /**
+     * Tira caminho e query das URLs de um texto (mensagem de erro de HTTP): fica só
+     * o host. URL pré-assinada vale como senha, e a do KYC leva o account_id.
+     */
+    public static function urls(string $text): string
+    {
+        return (string) preg_replace_callback(
+            '~\bhttps?://([^/\s?#"\']+)[^\s"\']*~i',
+            fn (array $m): string => "https://{$m[1]}/…",
+            $text,
+        );
+    }
 }

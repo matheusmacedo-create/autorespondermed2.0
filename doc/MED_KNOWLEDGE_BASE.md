@@ -214,7 +214,9 @@ bytes, PDF/PNG/JPEG/WEBP, até 10 MB). Documento da plataforma só entra quando 
 Pix: pedido errado traria a nota (e os dados) de outro comprador. A identidade do documento entre montagens é o
 `id` dele, ou tipo + URL sem a query (URL pré-assinada muda a cada resposta); conteúdo idêntico a uma evidência
 do caso nunca vira outra linha. O analista pode **descartar** evidência ainda não enviada (soft delete: some do
-envio, e a remontagem não a traz de volta). Documento gerado que muda antes de ser enviado troca de arquivo **e de correlationID** (o upload da
+envio, e a remontagem não a traz de volta; o seller reenviando o mesmo arquivo também não - só o analista
+re-anexando restaura). O descarte roda sob a trava do caso e refaz a conferência, e o envio refaz a conferência
+antes de gerar a carta: a carta nunca afirma um documento que saiu do caso. Documento gerado que muda antes de ser enviado troca de arquivo **e de correlationID** (o upload da
 Woovi é idempotente por correlationID: com o antigo, ela devolveria o arquivo velho); depois de enviado,
 nunca muda - nasce outro. A "impressão digital" de PDF gerado é o hash dos dados, não dos bytes (o dompdf
 embute a data).
@@ -244,15 +246,28 @@ dúvida, bloqueia (dado que falta ou não foi relido é trava, não passe):
 - **o analista nunca pediu complemento** no caso (a resposta ao que ele pediu é ele que vê);
 - conferência pronta; devoluções e KYC **relidos depois da defesa** (`ProcessSellerDefense` relê transação,
   devoluções e KYC) - devolução já feita ou KYC não aprovado bloqueiam, releitura que falhou também;
+  conta sem `unicopag_account_id` com o KYC ligado fica "KYC não conferido" e bloqueia (só o KYC desligado no
+  ambiente deixa passar);
 - valor até o teto (`MED_ENVIO_AUTOMATICO_TETO_CENTAVOS`);
-- **alegação conhecida** (`situationType`, só pela rota de recuperação de fundos) e fora de
-  `ACCOUNT_TAKEOVER`/`FRAUDULENT_ACCESS`/`COERCION`; sem alegação, não envia (`MED_ENVIO_AUTOMATICO_EXIGIR_SITUACAO`);
-- motivo da disputa sem sinal de conta invadida/coação (`MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS`).
+- **alegação na lista branca** (`situationType`, só pela rota de recuperação de fundos;
+  `MED_ENVIO_AUTOMATICO_SITUACOES_PERMITIDAS`, padrão só `SCAM`). Conta invadida, coação, `UNKNOWN`, `OTHER` e
+  qualquer valor novo da Woovi vão ao analista; sem alegação, não envia (`MED_ENVIO_AUTOMATICO_EXIGIR_SITUACAO`);
+- motivo sem sinal de conta invadida/coação, no texto da disputa **e** no `disputeReason` da recuperação de
+  fundos (`MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS` - **entre aspas no .env**: tem espaço, e sem aspas o Dotenv
+  derruba o boot).
 
 Conta invadida ou coação: o "seller" pode ser o golpista - defender sozinho é risco de PLD. **Na prática, sem a
 feature "MED API" na conta a Woovi não informa a alegação e o envio automático não acontece** - de propósito.
 Revisão adversarial de 12/10/2026 (5 lentes, 3 céticos por achado): 13 problemas confirmados, todos corrigidos
-com teste de regressão (`tests/Feature/Dossier/ReviewRegressionTest.php`).
+com teste de regressão (`tests/Feature/Dossier/ReviewRegressionTest.php`). Segunda rodada, só sobre as
+correções: 12 confirmados (descarte sem trava e sem reconferência, lista negra da alegação, KYC pulado em conta
+sem vínculo, `.env.example` que não subia, URL pré-assinada na linha do tempo...), corrigidos em
+`ReviewRound2Test.php`.
+
+**Reenfileiramento:** `med:sincronizar` pede de novo o dossiê que falhou de hora em hora; o "partial" (que pode
+ser permanente: rota da venda ainda não existe, conta sem "MED API") só a cada 6h. Fonte ok com erro guardado
+(releitura que falhou) é relida na próxima montagem. Erro gravado em fonte ou evento passa por `Mask::urls`
+(fica só o host). Caso ocupado (trava): o botão avisa em 5s, o `med:montar-dossie` pula e segue o lote.
 Um envio por caso de cada vez (lock), um envio consolidado (dossiê + defesa juntos), e 400 da Woovi no
 automático relê o caso. **Não há envio sem o seller:** sem endpoint para aceitar a devolução, não enviar é o
 único jeito de aceitar, e enviar fecha o link.
@@ -308,6 +323,8 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-12** - segunda revisão do dossiê: lista branca da alegação, descarte sob trava com reconferência,
+  KYC sem vínculo bloqueia o automático, partial reenfileirado a cada 6h.
 - **2026-10-12** - dossiê automático, conferência e envio automático (seção 8); contrato da rota de venda
   pedido ao unico-api (8.1); endpoints de transação/cobrança/devolução/comprovante da Woovi (2.1).
 - **2026-10-12** - WhatsApp oficial pela Kapso (seção 6).

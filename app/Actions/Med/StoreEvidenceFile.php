@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
  * Arquivo com o mesmo conteúdo (sha256) de uma evidência que o caso já tem - do
  * dossiê, de um envio anterior do seller - não entra de novo: devolve null. Só
  * pega cópia idêntica; o mesmo documento reexportado passa (quem confere é o analista).
+ * Exceção: o analista re-anexando o que descartou restaura a linha descartada.
  */
 class StoreEvidenceFile
 {
@@ -22,7 +23,17 @@ class StoreEvidenceFile
     {
         $hash = hash_file('sha256', $file->getRealPath()) ?: null;
 
-        if ($hash !== null && $dispute->evidences()->withTrashed()->where('content_hash', $hash)->exists()) {
+        $same = $hash === null ? null : $dispute->evidences()->withTrashed()->where('content_hash', $hash)->first();
+
+        // O analista anexar de novo um arquivo que descartou é decisão dele: volta ao
+        // caso. O seller não desfaz o descarte do analista reenviando o arquivo.
+        if ($same?->trashed() && $same->sent_at === null && $uploadedBy === 'analyst') {
+            $same->restore();
+
+            return $same;
+        }
+
+        if ($same !== null) {
             return null;
         }
 

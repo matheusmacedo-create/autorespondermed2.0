@@ -82,6 +82,11 @@ class ReviewRegressionTest extends DossierTestCase
             'api.woovi.test/api/v1/dispute/*' => Http::response(['dispute' => ['status' => 'OPENED', 'endToEndId' => self::E2E, 'type' => 'MED']]),
         ]);
 
+        // Recém-montado não volta na hora seguinte; depois do intervalo, volta.
+        $this->artisan('med:sincronizar')->assertSuccessful();
+        $this->assertSame(SourceStatus::FAILED, $this->source($dispute, DossierSource::KYC_STATUS)->status);
+
+        $this->travel(7)->hours();
         $this->artisan('med:sincronizar')->assertSuccessful();
 
         $this->assertSame(SourceStatus::OK, $this->source($dispute, DossierSource::KYC_STATUS)->status);

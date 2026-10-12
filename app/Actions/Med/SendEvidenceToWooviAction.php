@@ -27,6 +27,7 @@ class SendEvidenceToWooviAction
 {
     public function __construct(
         private readonly GenerateDefenseLetterAction $generateDefenseLetter,
+        private readonly MatchDossierAction $match,
         private readonly DisputeEventRecorder $events,
         private readonly DiscordNotificationService $discord,
     ) {}
@@ -49,6 +50,12 @@ class SendEvidenceToWooviAction
 
         if (! $dispute->status->canSendToWoovi()) {
             throw new RuntimeException("Caso {$dispute->status->label()}: não aceita mais evidência.");
+        }
+
+        // A carta afirma os itens ok da conferência: refeita aqui, com as evidências de
+        // agora, ela não cita documento que saiu do caso depois da última montagem.
+        if ($dispute->dossier_match !== null) {
+            $this->match->handle($dispute);
         }
 
         $this->generateDefenseLetter->handle($dispute);

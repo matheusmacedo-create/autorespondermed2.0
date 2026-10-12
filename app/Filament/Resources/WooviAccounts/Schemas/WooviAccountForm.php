@@ -41,6 +41,10 @@ class WooviAccountForm
                                 : 'Chave da API da conta (Woovi > API/Plugins). Precisa dos escopos DISPUTE_GET, DISPUTE_GET_LIST, DISPUTE_POST, FILE_POST e WEBHOOK.')
                             ->columnSpanFull(),
                         Toggle::make('is_active')->label('Ativa')->default(true),
+                        Toggle::make('auto_send')
+                            ->label('Envio automático à Woovi')
+                            ->helperText('Depois da defesa do seller, envia sozinho quando a conferência do dossiê está ok e as travas passam (teto de valor, nenhuma devolução, alegação que não seja conta invadida). Só vale com MED_ENVIO_AUTOMATICO ligado.')
+                            ->default(false),
                     ]),
 
                 Section::make('Contato do seller')

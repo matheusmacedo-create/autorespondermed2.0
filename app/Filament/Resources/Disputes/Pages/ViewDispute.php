@@ -30,6 +30,7 @@ class ViewDispute extends ViewRecord
                 DisputeActions::editAnalystNotes(),
                 DisputeActions::attachEvidence(),
                 DisputeActions::resendSellerNotice(),
+                DisputeActions::rebuildDossier(),
                 DisputeActions::syncWithWoovi(),
             ])->label('Mais')->icon('heroicon-o-ellipsis-horizontal')->button()->color('gray'),
         ];

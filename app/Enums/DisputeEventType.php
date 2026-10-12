@@ -26,6 +26,12 @@ enum DisputeEventType: string
     case WHATSAPP_REPLIED = 'whatsapp_replied';
     case WHATSAPP_OPT_OUT = 'whatsapp_opt_out';
     case WHATSAPP_DELIVERY_FAILED = 'whatsapp_delivery_failed';
+    case DOSSIER_BUILT = 'dossier_built';
+    case DOSSIER_SOURCE_FAILED = 'dossier_source_failed';
+    case DOSSIER_MATCHED = 'dossier_matched';
+    case DUPLICATE_EVIDENCE_SKIPPED = 'duplicate_evidence_skipped';
+    case AUTO_SENT = 'auto_sent';
+    case AUTO_SEND_SKIPPED = 'auto_send_skipped';
 
     public function label(): string
     {
@@ -49,6 +55,12 @@ enum DisputeEventType: string
             self::WHATSAPP_REPLIED => 'Seller respondeu no WhatsApp',
             self::WHATSAPP_OPT_OUT => 'Seller pediu para parar o WhatsApp',
             self::WHATSAPP_DELIVERY_FAILED => 'WhatsApp não entregue',
+            self::DOSSIER_BUILT => 'Dossiê automático montado',
+            self::DOSSIER_SOURCE_FAILED => 'Fonte do dossiê falhou',
+            self::DOSSIER_MATCHED => 'Conferência do dossiê',
+            self::DUPLICATE_EVIDENCE_SKIPPED => 'Arquivo repetido ignorado',
+            self::AUTO_SENT => 'Enviado automaticamente',
+            self::AUTO_SEND_SKIPPED => 'Envio automático não feito',
         };
     }
 

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\DisputeStatus;
+use App\Enums\DossierSource;
+use App\Enums\SourceStatus;
 use Database\Factories\DisputeFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -48,6 +50,10 @@ class Dispute extends Model
         'reviewed_by',
         'evidence_sent_at',
         'closed_at',
+        'dossier_status',
+        'dossier_built_at',
+        'dossier_match',
+        'seller_details',
         'raw',
     ];
 
@@ -69,6 +75,9 @@ class Dispute extends Model
             'seller_submission_metadata' => 'array',
             'evidence_sent_at' => 'datetime',
             'closed_at' => 'datetime',
+            'dossier_built_at' => 'datetime',
+            'dossier_match' => 'array',
+            'seller_details' => 'array',
             'raw' => 'array',
         ];
     }
@@ -98,6 +107,25 @@ class Dispute extends Model
     public function events(): HasMany
     {
         return $this->hasMany(DisputeEvent::class);
+    }
+
+    public function sources(): HasMany
+    {
+        return $this->hasMany(DisputeSource::class);
+    }
+
+    /**
+     * Payload de uma fonte do dossiê que deu certo (null quando não há).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function sourcePayload(DossierSource $source): ?array
+    {
+        $row = $this->relationLoaded('sources')
+            ? $this->sources->first(fn (DisputeSource $s): bool => $s->source === $source)
+            : $this->sources()->where('source', $source->value)->first();
+
+        return $row && $row->status === SourceStatus::OK ? (array) $row->payload : null;
     }
 
     public function whatsappMessages(): HasMany

@@ -11,12 +11,16 @@ revisa na fila e o sistema envia a defesa à Woovi.
    caso nasce com prazo (72h por padrão). O `med:sincronizar` de hora em hora pega o que o webhook perder.
 2. **Seller é avisado** por e-mail com o link `/med/{token}` e, com a Kapso configurada, pelo WhatsApp
    oficial: sai um template aprovado e, quando o seller responde, o link vai como texto.
-3. **Seller se defende**: relato + comprovantes (nota fiscal, entrega, conversa...), PDF/JPG/PNG/WEBP até
+3. **Dossiê automático** (opcional): o sistema já puxa da Woovi a transação, a cobrança, as devoluções e o
+   comprovante oficial, da plataforma a venda e o cadastro e do KYC o status, gera as evidências e confere
+   tudo antes de o seller responder. Quando o seller manda a defesa, cruza com o dossiê, completa o que
+   faltava e - com o envio automático e todas as travas ok - envia sozinho.
+4. **Seller se defende**: relato + comprovantes (nota fiscal, entrega, conversa...), PDF/JPG/PNG/WEBP até
    10 MB, os mesmos limites da Woovi.
-4. **Analista revisa** em `/admin/disputes`: pede complemento, anexa evidência, escreve o parecer.
-5. **Enviar à Woovi**: o sistema gera a carta de defesa em PDF, sobe os arquivos (`POST /api/v1/files`) e
+5. **Analista revisa** em `/admin/disputes`: pede complemento, anexa evidência, escreve o parecer.
+6. **Enviar à Woovi**: o sistema gera a carta de defesa em PDF, sobe os arquivos (`POST /api/v1/files`) e
    chama `POST /api/v1/dispute/{id}/evidence`.
-6. **Decisão**: o webhook `ACCEPTED` / `REJECTED` / `CANCELED` encerra o caso e avisa o seller.
+7. **Decisão**: o webhook `ACCEPTED` / `REJECTED` / `CANCELED` encerra o caso e avisa o seller.
 
 ## Rodando
 
@@ -63,6 +67,7 @@ Depois: **Cadastrar webhooks** na lista (ou `php artisan med:registrar-webhooks 
 | `med:alertar-prazos` | lembra o seller (uma vez) e manda ao Discord os prazos vencendo | 9h, 14h e 18h |
 | `med:registrar-webhooks [--conta=]` | cadastra os eventos `OPENPIX:DISPUTE_*` na Woovi | manual |
 | `med:registrar-webhook-kapso` | cadastra na Kapso o webhook de WhatsApp do MED | uma vez |
+| `med:montar-dossie --caso=ID \| --abertos [--refazer]` | monta o dossiê automático na hora | manual |
 | `med:diagnostico` | confere banco, fila, cron, e-mail, chaves e contas; sai com erro se algo obrigatório falha | manual |
 
 ## Testes

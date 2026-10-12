@@ -35,5 +35,11 @@
         <env name="WOOVI_WEBHOOK_PUBLIC_KEYS_URL" value=""/>
         <env name="WOOVI_WEBHOOK_VERIFY_SIGNATURE" value="true"/>
         <env name="WOOVI_EVIDENCE_MODE" value="file_id"/>
+        <env name="MED_DOSSIE_HABILITADO" value="false"/>
+        <env name="MED_ENVIO_AUTOMATICO" value="false"/>
+        <env name="UNICOPAG_API_BASE_URL" value="https://unico-api.test"/>
+        <env name="UNICOPAG_API_KEY" value=""/>
+        <env name="UNICOPAG_SALE_ENDPOINT" value=""/>
+        <env name="KYC_BASE_URL" value="https://kyc.test"/>
     </php>
 </phpunit>

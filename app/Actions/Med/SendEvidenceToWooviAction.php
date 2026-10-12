@@ -10,6 +10,7 @@ use App\Services\DiscordNotificationService;
 use App\Services\DisputeEventRecorder;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\URL;
 use RuntimeException;
 
@@ -31,9 +32,27 @@ class SendEvidenceToWooviAction
     ) {}
 
     /**
+     * @param  string  $source  analyst (clique no painel) | system (envio automático)
      * @return int quantos documentos foram enviados
      */
-    public function handle(Dispute $dispute, ?int $userId = null): int
+    public function handle(Dispute $dispute, ?int $userId = null, string $source = 'analyst'): int
+    {
+        // Um envio por caso de cada vez: o clique do analista, o envio automático e o
+        // retry de um job podiam mandar duas cartas diferentes ao mesmo tempo.
+        $lock = Cache::lock("med:envio:{$dispute->id}", 300);
+
+        if (! $lock->get()) {
+            throw new RuntimeException('Já há um envio deste caso em andamento. Aguarde e confira a linha do tempo.');
+        }
+
+        try {
+            return $this->send($dispute->fresh() ?? $dispute, $userId, $source);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function send(Dispute $dispute, ?int $userId, string $source): int
     {
         $dispute->loadMissing('wooviAccount');
 
@@ -61,7 +80,7 @@ class SendEvidenceToWooviAction
 
             $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
         } catch (WooviException $e) {
-            $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode]);
+            $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode], $source);
 
             throw $e;
         }
@@ -87,7 +106,7 @@ class SendEvidenceToWooviAction
             $dispute,
             sprintf('%d documento(s) enviados à Woovi (modo %s).', $pending->count(), $mode),
             ['evidence_ids' => $pending->pluck('id')->all(), 'mode' => $mode],
-            source: 'analyst',
+            source: $source,
         );
 
         return $pending->count();
@@ -153,13 +172,13 @@ class SendEvidenceToWooviAction
      * @param  iterable<DisputeEvidence>  $pending
      * @param  array<string, mixed>  $context
      */
-    private function fail(Dispute $dispute, iterable $pending, string $error, array $context): void
+    private function fail(Dispute $dispute, iterable $pending, string $error, array $context, string $source): void
     {
         foreach ($pending as $evidence) {
             $evidence->forceFill(['last_error' => $error])->save();
         }
 
-        $this->events->record(DisputeEventType::EVIDENCE_SEND_FAILED, $dispute, $error, $context, level: 'error', source: 'analyst');
+        $this->events->record(DisputeEventType::EVIDENCE_SEND_FAILED, $dispute, $error, $context, level: 'error', source: $source);
         $this->discord->evidenceSendFailed($dispute, $error);
     }
 }

@@ -53,6 +53,7 @@ class DiagnosticsCommand extends Command
         $mailer = (string) config('mail.default');
         $this->check('E-mail ao seller', in_array($mailer, ['log', 'array'], true) ? ($production ? 'fail' : 'warn') : 'ok', "mailer {$mailer}, de ".config('mail.from.address'));
         $this->checkWhatsApp();
+        $this->checkDossier();
         $this->check('Discord (alertas)', filled(config('services.discord.med_webhook_url')) ? 'ok' : 'warn', filled(config('services.discord.med_webhook_url')) ? 'configurado' : 'vazio: alertas só no log');
 
         $this->checkStorage();
@@ -154,6 +155,38 @@ class DiagnosticsCommand extends Command
             'WhatsApp (Kapso)',
             $missing === [] ? 'ok' : 'warn',
             $missing === [] ? 'template '.config('med.whatsapp.template').' (rode med:registrar-webhook-kapso uma vez)' : 'falta '.implode(' e ', $missing).': sem isso o link não vai na resposta',
+        );
+    }
+
+    private function checkDossier(): void
+    {
+        if (! config('med.dossie.habilitado')) {
+            $this->check('Dossiê automático', 'warn', 'desligado (MED_DOSSIE_HABILITADO): evidências só do seller e do analista');
+        } else {
+            $missing = array_keys(array_filter([
+                'UNICOPAG_API_KEY' => blank(config('services.unicopag.key')),
+                'UNICOPAG_SALE_ENDPOINT (rota ainda a criar no unico-api)' => blank(config('services.unicopag.sale_endpoint')),
+            ]));
+
+            $this->check('Dossiê automático', $missing === [] ? 'ok' : 'warn', $missing === []
+                ? 'Woovi + unico-api + KYC'
+                : 'ligado com a Woovi; falta '.implode(' e ', $missing).' para a venda na plataforma');
+        }
+
+        if (! config('med.envio_automatico.habilitado')) {
+            $this->check('Envio automático', 'ok', 'desligado: todo envio passa pelo analista');
+
+            return;
+        }
+
+        $optIn = (int) rescue(fn () => WooviAccount::query()->where('is_active', true)->where('auto_send', true)->count(), 0, report: false);
+
+        $this->check(
+            'Envio automático',
+            config('med.dossie.habilitado') ? 'ok' : 'warn',
+            config('med.dossie.habilitado')
+                ? "ligado, {$optIn} conta(s) com opt-in, teto R$ ".number_format(config('med.envio_automatico.teto_centavos') / 100, 2, ',', '.')
+                : 'ligado sem o dossiê: nunca vai enviar (precisa da conferência)',
         );
     }
 

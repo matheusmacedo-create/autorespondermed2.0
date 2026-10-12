@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Disputes\Support;
 
+use App\Actions\Med\BuildDossierAction;
+use App\Actions\Med\MatchDossierAction;
 use App\Actions\Med\RequestComplementAction;
 use App\Actions\Med\SendEvidenceToWooviAction;
 use App\Actions\Med\StoreEvidenceFile;
@@ -127,6 +129,12 @@ class DisputeActions
                 $dispute = $livewire->getRecord();
                 $evidence = $store->handle($dispute, $file, EvidenceKind::from($data['kind']), (string) $data['description'], 'analyst');
 
+                if ($evidence === null) {
+                    Notification::make()->warning()->title('Arquivo repetido')->body('O caso já tem uma evidência com exatamente este conteúdo.')->send();
+
+                    return;
+                }
+
                 $events->record(DisputeEventType::ANALYST_EVIDENCE_ADDED, $dispute, "Analista anexou {$evidence->original_name}.", ['evidence_id' => $evidence->id], source: 'analyst');
                 Notification::make()->success()->title('Evidência anexada')->send();
             });
@@ -147,6 +155,27 @@ class DisputeActions
                 $sent
                     ? Notification::make()->success()->title('Aviso reenviado')->send()
                     : Notification::make()->warning()->title('Aviso não enviado')->body('Veja o motivo na linha do tempo. O link da ficha pode ser mandado à mão.')->send();
+            });
+    }
+
+    public static function rebuildDossier(): Action
+    {
+        return Action::make('rebuildDossier')
+            ->label('Montar dossiê agora')
+            ->icon('heroicon-o-document-magnifying-glass')
+            ->modalDescription('Busca de novo a transação, a cobrança, as devoluções e o comprovante na Woovi, a venda e o cadastro no unico-api e o status do KYC, regenera os documentos que mudaram e refaz a conferência. O que já foi enviado à Woovi não muda.')
+            ->requiresConfirmation()
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && ! $livewire->getRecord()->status->isClosed())
+            ->action(function (ViewRecord $livewire, BuildDossierAction $build): void {
+                $dispute = $build->handle($livewire->getRecord(), refresh: true);
+
+                Notification::make()
+                    ->title('Dossiê montado: '.((bool) data_get($dispute->dossier_match, 'ready') ? 'conferência ok' : 'com pendências'))
+                    ->{(bool) data_get($dispute->dossier_match, 'ready') ? 'success' : 'warning'}()
+                    ->send();
+
+                $livewire->getRecord()->refresh();
             });
     }
 
@@ -173,7 +202,15 @@ class DisputeActions
     private static function sendDescription(Dispute $dispute): string
     {
         $pending = $dispute->evidences()->whereNull('sent_at')->count();
-        $lines = ["{$pending} documento(s) ainda não enviados vão para a Woovi, mais a carta de defesa (relato do seller + parecer)."];
+        $lines = ["{$pending} documento(s) ainda não enviados vão para a Woovi, mais a carta de defesa (relato do seller, fatos conferidos e parecer)."];
+
+        $divergent = collect((array) data_get($dispute->dossier_match, 'checks', []))
+            ->where('status', MatchDossierAction::DIVERGENT)
+            ->pluck('label');
+
+        if ($divergent->isNotEmpty()) {
+            $lines[] = 'ATENÇÃO: a conferência do dossiê achou divergência em: '.$divergent->implode(', ').'.';
+        }
 
         if ($dispute->status === DisputeStatus::PENDING_SELLER) {
             $lines[] = 'ATENÇÃO: o seller ainda não mandou a defesa. Envie só se o prazo estiver acabando.';

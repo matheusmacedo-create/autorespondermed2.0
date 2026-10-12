@@ -37,6 +37,16 @@ class WooviException extends RuntimeException
     }
 
     /**
+     * A Woovi não achou o recurso: 404, ou 400 com "not found" (é assim que o GET
+     * /transaction/{id} responde a transação inexistente).
+     */
+    public function isNotFound(): bool
+    {
+        return $this->status === 404
+            || ($this->status === 400 && str_contains(strtolower((string) $this->body), 'not found'));
+    }
+
+    /**
      * A conta não tem a feature de evidência por fileId (DISPUTE_EVIDENCE_FILE_ID)
      * ou o AppID não tem o escopo FILE_POST: dá para seguir pelo modo `url`.
      */

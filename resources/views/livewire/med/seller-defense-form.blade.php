@@ -31,12 +31,27 @@
             </dl>
         @endif
 
+        @if ($dossierItems && ! $blockedMessage && ! $submitted && $dispute && $dispute->status->acceptsSellerSubmission())
+            <div class="mt-6 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+                <p class="font-semibold">A ÚnicoPag já reuniu para a sua defesa:</p>
+                <ul class="mt-2 list-disc space-y-1 pl-5">
+                    @foreach ($dossierItems as $item)
+                        <li>{{ $item }}</li>
+                    @endforeach
+                </ul>
+                <p class="mt-2 text-xs text-green-800">Não precisa enviar estes de novo. Mande o seu relato e o que só você tem: nota fiscal, conversa com o comprador, comprovante de entrega.</p>
+            </div>
+        @endif
+
         @if ($blockedMessage)
             <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{{ $blockedMessage }}</div>
         @elseif ($submitted || ($dispute && ! $dispute->status->acceptsSellerSubmission()))
             <div class="mt-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
                 Recebemos sua defesa. Nossa equipe vai analisar e enviar as evidências à instituição do pagador.
                 Você recebe o resultado por e-mail.
+                @if ($duplicatesSkipped > 0)
+                    <span class="mt-1 block text-xs">{{ $duplicatesSkipped }} arquivo(s) iguais aos que já tínhamos foram ignorados.</span>
+                @endif
             </div>
         @else
             @if ($dispute->complement_request)
@@ -68,9 +83,30 @@
                     @error('statement') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                 </div>
 
+                @if ($askOrder || $askTracking)
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        @if ($askOrder)
+                            <div>
+                                <label for="orderReference" class="text-sm font-medium text-slate-700">Número do pedido <span class="font-normal text-slate-400">(se tiver)</span></label>
+                                <input id="orderReference" type="text" wire:model="orderReference" maxlength="100"
+                                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+                                @error('orderReference') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
+                        @if ($askTracking)
+                            <div>
+                                <label for="trackingCode" class="text-sm font-medium text-slate-700">Código de rastreio <span class="font-normal text-slate-400">(se houve envio)</span></label>
+                                <input id="trackingCode" type="text" wire:model="trackingCode" maxlength="100"
+                                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+                                @error('trackingCode') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
+                    </div>
+                @endif
+
                 <div class="space-y-4">
                     <div>
-                        <p class="text-sm font-medium text-slate-700">Comprovantes</p>
+                        <p class="text-sm font-medium text-slate-700">Comprovantes @if ($filesOptional)<span class="font-normal text-slate-400">(opcional - já temos o comprovante do Pix)</span>@endif</p>
                         <p class="text-xs text-slate-500">Nota fiscal, comprovante de entrega, conversa com o comprador... PDF, JPG, PNG ou WEBP, até 10 MB cada.</p>
                         @error('evidences') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
                     </div>

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Actions\Med\SyncAccountDisputesAction;
 use App\Actions\Med\SyncDisputeAction;
+use App\Jobs\BuildDisputeDossier;
 use App\Models\Dispute;
 use App\Models\WooviAccount;
 use Illuminate\Console\Command;
@@ -58,7 +59,20 @@ class SyncDisputesCommand extends Command
             }
         }
 
-        $this->info("Contas: {$accounts->count()} · casos abertos relidos: {$open->count()} · falhas: {$failures}");
+        // Rede de segurança do dossiê: caso aberto que ainda não tem dossiê (criado
+        // antes da opção ser ligada, ou cujo job se perdeu) entra na fila.
+        $withoutDossier = 0;
+
+        if (config('med.dossie.habilitado')) {
+            $open->whereNull('dossier_built_at')
+                ->filter(fn (Dispute $dispute): bool => ! $dispute->fresh()?->status->isClosed())
+                ->each(function (Dispute $dispute) use (&$withoutDossier): void {
+                    BuildDisputeDossier::dispatch($dispute->id);
+                    $withoutDossier++;
+                });
+        }
+
+        $this->info("Contas: {$accounts->count()} · casos abertos relidos: {$open->count()} · dossiês pedidos: {$withoutDossier} · falhas: {$failures}");
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;
     }

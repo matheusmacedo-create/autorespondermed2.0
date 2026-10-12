@@ -57,6 +57,12 @@ KAPSO_PHONE_NUMBER_ID=<o mesmo do KYC>
 KAPSO_WEBHOOK_SECRET=<segredo novo, só do MED>
 MED_WHATSAPP_TEMPLATE=<nome do template aprovado na Meta>
 
+# Dossiê automático (ligar depois de confirmar os escopos do AppID das subcontas) e envio automático.
+MED_DOSSIE_HABILITADO=false
+MED_ENVIO_AUTOMATICO=false
+UNICOPAG_API_KEY=<chave de uma integração "med" só de leitura no unico-api>
+UNICOPAG_SALE_ENDPOINT=<rota de venda, quando o unico-api a criar>
+
 WOOVI_BASE_URL=https://api.woovi.com
 WOOVI_WEBHOOK_VERIFY_SIGNATURE=true
 WOOVI_EVIDENCE_MODE=file_id

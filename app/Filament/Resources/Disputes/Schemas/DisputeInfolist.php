@@ -2,8 +2,11 @@
 
 namespace App\Filament\Resources\Disputes\Schemas;
 
+use App\Actions\Med\MatchDossierAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
+use App\Enums\DossierSource;
+use App\Enums\SourceStatus;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
 use App\Support\TaxId;
@@ -57,6 +60,13 @@ class DisputeInfolist
                                     ->color('warning'),
                                 TextEntry::make('seller_contact_name')->label('Enviada por')->placeholder('Ainda não enviada'),
                                 TextEntry::make('seller_submitted_at')->label('Enviada em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('—'),
+                                TextEntry::make('seller_details')
+                                    ->label('Informado pelo seller')
+                                    ->state(fn (Dispute $record): ?string => collect([
+                                        'Pedido' => data_get($record->seller_details, 'order_reference'),
+                                        'Rastreio' => data_get($record->seller_details, 'tracking_code'),
+                                    ])->filter()->map(fn ($v, $k) => "{$k}: {$v}")->implode(' · ') ?: null)
+                                    ->visible(fn (Dispute $record): bool => filled($record->seller_details)),
                                 TextEntry::make('seller_statement')
                                     ->label('Relato')
                                     ->placeholder('O seller ainda não mandou o relato.')
@@ -65,6 +75,57 @@ class DisputeInfolist
                                     ->label('Parecer da ÚnicoPag (vai na carta de defesa)')
                                     ->placeholder('Sem parecer. Use "Mais > Parecer da ÚnicoPag".')
                                     ->extraAttributes(['class' => 'whitespace-pre-line']),
+                            ]),
+
+                        Section::make('Conferência do dossiê')
+                            ->description(fn (Dispute $record): string => match (true) {
+                                $record->dossier_match === null => 'Ainda não conferido.',
+                                (bool) data_get($record->dossier_match, 'ready') => 'Pronto para envio: nenhuma divergência que bloqueie.',
+                                default => 'Com pendência ou divergência - confira antes de enviar.',
+                            })
+                            ->visible(fn (Dispute $record): bool => $record->dossier_match !== null)
+                            ->schema([
+                                RepeatableEntry::make('dossier_checks')
+                                    ->hiddenLabel()
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->dossier_match, 'checks', []))
+                                    ->columns(3)
+                                    ->schema([
+                                        TextEntry::make('label')->hiddenLabel()->weight('medium'),
+                                        TextEntry::make('status')
+                                            ->hiddenLabel()
+                                            ->badge()
+                                            ->formatStateUsing(fn (string $state): string => match ($state) {
+                                                MatchDossierAction::OK => 'Ok',
+                                                MatchDossierAction::DIVERGENT => 'Divergente',
+                                                default => 'Sem dado',
+                                            })
+                                            ->color(fn (string $state): string => match ($state) {
+                                                MatchDossierAction::OK => 'success',
+                                                MatchDossierAction::DIVERGENT => 'danger',
+                                                default => 'gray',
+                                            }),
+                                        TextEntry::make('detail')->hiddenLabel()->color('gray'),
+                                    ]),
+                            ]),
+
+                        Section::make('Dossiê automático')
+                            ->description('O que o sistema puxou sozinho da Woovi, da plataforma e do KYC.')
+                            ->collapsed()
+                            ->visible(fn (Dispute $record): bool => $record->dossier_built_at !== null)
+                            ->schema([
+                                RepeatableEntry::make('dossier_sources')
+                                    ->hiddenLabel()
+                                    ->state(fn (Dispute $record) => $record->sources()->orderBy('id')->get())
+                                    ->columns(3)
+                                    ->schema([
+                                        TextEntry::make('source')->hiddenLabel()->formatStateUsing(fn (DossierSource $state): string => $state->label()),
+                                        TextEntry::make('status')->hiddenLabel()->badge()
+                                            ->formatStateUsing(fn (SourceStatus $state): string => $state->label())
+                                            ->color(fn (SourceStatus $state): string => $state->color()),
+                                        TextEntry::make('fetched_at')->hiddenLabel()->since()->color('gray'),
+                                        TextEntry::make('error')->hiddenLabel()->color('danger')->columnSpanFull()
+                                            ->visible(fn ($record): bool => filled($record->error)),
+                                    ]),
                             ]),
 
                         Section::make('Evidências')
@@ -80,10 +141,11 @@ class DisputeInfolist
                                             ->columnSpan(2),
                                         TextEntry::make('uploaded_by')
                                             ->label('Origem')
-                                            ->formatStateUsing(fn (string $state): string => match ($state) {
-                                                'seller' => 'Seller',
-                                                'analyst' => 'Analista',
-                                                default => 'Sistema',
+                                            ->formatStateUsing(fn (string $state, DisputeEvidence $record): string => match (true) {
+                                                $state === 'seller' => 'Seller',
+                                                $state === 'analyst' => 'Analista',
+                                                $record->source === 'defense_letter' => 'Carta (sistema)',
+                                                default => 'Dossiê automático',
                                             }),
                                         TextEntry::make('sent_at')
                                             ->label('Na Woovi')

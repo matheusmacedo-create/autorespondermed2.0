@@ -1,7 +1,7 @@
 # MED - Base de Conhecimento
 
 > **Documento vivo.** Registra como o responder de MED **é** e o que se sabe do contrato da Woovi.
-> Última atualização: 2026-10-12 (papéis e permissões).
+> Última atualização: 2026-10-12 (dossiê automático e envio automático).
 
 Mesma regra do KYC: comportamento e decisão vêm para cá; o que falta fazer vai para o card. Cada fato diz
 como foi apurado - `[doc-woovi]` documentação pública da Woovi, `[openapi]` spec do repo
@@ -48,6 +48,10 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 | Enviar evidência | `POST /api/v1/dispute/{id}/evidence` `{documents:[{fileId\|url, description, correlationID}]}` | `DISPUTE_POST` | `[doc-woovi]` `[openapi]` |
 | Cadastrar webhook | `POST /api/v1/webhook` `{webhook:{name, event, url, isActive}}` | webhook | `[openapi]` |
 | Chave do webhook | `GET /api/v1/webhook/public-keys` (aberto, sem auth) | - | `[doc-woovi]` |
+| Transação (dossiê) | `GET /api/v1/transaction/{id}` - **aceita o endToEndId**; valor, horário, pagador, txid, `charge.correlationID` | `TRANSACTION_GET` | `[openapi]` |
+| Cobrança (dossiê) | `GET /api/v1/charge/{id}` - aceita o correlationID; `customer`, `comment`, `additionalInfo`, `createdAt` | `CHARGE_GET` | `[openapi]` |
+| Devoluções (dossiê) | `GET /api/v1/charge/{id}/refund` - `{refunds:[{value,status,time}]}` | `CHARGE_REFUND_GET_LIST` | `[openapi]` |
+| Comprovante (dossiê) | `GET /api/v1/receipt/pix-in/{endToEndId}` - PDF | nenhum declarado | `[openapi]` `[doc-woovi]` |
 
 - Autenticação: header `Authorization: <AppID>` (sem `Bearer`). `[doc-woovi]`
 - Arquivo: até 10 MiB, PDF/PNG/JPEG/WEBP, os bytes iniciais têm de bater com o content type. Reenviar com o
@@ -59,6 +63,14 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 - Não há campo de texto livre na evidência: só `description` por documento. Por isso o relato do seller
   vai como **carta de defesa em PDF** gerada pelo sistema. `[doc-woovi]` `[decisão]`
 - Erro documentado: `400 "You cannot send a evidence for a accepted dispute"`. `[openapi]`
+- **O GET de MED não traz valor, pagador nem horário** (dispute-get-payload: só type, status, endToEndId e
+  id). Quem traz é a transação - o dossiê preenche `disputes.value` com ela. `[doc-woovi]` `[código]`
+- `GET /transaction/{id}` responde transação inexistente com **400 "Transaction not found"**, não 404;
+  `WooviException::isNotFound()` trata os dois. `[doc-woovi]`
+- Pix avulso (pago direto na chave) vem com `charge: null`: sem cobrança, sem correlationID, sem
+  `additionalInfo` e sem como ligar à venda na plataforma. `[doc-woovi]`
+- `debitParty`/`creditParty` aparecem só no **exemplo** do GET de transação, com os papéis aparentemente
+  trocados para um Pix recebido - não são usados até uma chamada real confirmar. `[openapi]`
 
 ### 2.2 Webhook
 
@@ -100,6 +112,13 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 4. **Escopos `DISPUTE_*` em WooviApp.** Não estão na lista de bloqueados, mas o catálogo completo não é
    público. Teste definitivo: criar o app declarando `DISPUTE_POST`.
 5. Se o webhook de disputa traz `company`/`account` como os de cobrança (o exemplo da doc não traz).
+6. **Se o AppID das subcontas (account-register) tem `TRANSACTION_GET`, `CHARGE_GET` e
+   `CHARGE_REFUND_GET_LIST`.** Sem eles o dossiê fica só com o que a plataforma e o KYC dão. Confirmar com
+   uma chamada real antes de ligar `MED_DOSSIE_HABILITADO`.
+7. Se a Woovi aceita (e considera) um **segundo** `POST /dispute/{id}/evidence` no mesmo caso. Por isso o
+   envio é sempre único e consolidado: dossiê + defesa do seller juntos.
+8. Se o comprovante (`/receipt/pix-in`) sai para transação com saldo bloqueado por MED, e se
+   `funds-recovery/{e2e}/disputes` (feature "MED API") responde para o recebedor.
 
 ## 4. Decisões
 
@@ -158,7 +177,102 @@ botão de "agora não" seria lido como "pode mandar"):
   e as rotinas agendadas ficaram semanas sem rodar sem ninguém perceber.
 - A `APP_KEY` de produção não pode ser trocada: os AppIDs das contas Woovi são criptografados com ela.
 
-## 8. Contratos com o unico-api
+## 8. Dossiê automático e envio automático `[código]` `[decisão]`
+
+**O que é.** Ao receber o MED, o sistema monta sozinho o "dossiê" do caso, antes de o seller abrir o link.
+Quando o seller responde, cruza o que ele mandou com o dossiê, completa o que faltava e - se a opção e as
+travas deixarem - envia sozinho. Pedido do Matheus em 12/10/2026. Desligado por padrão
+(`MED_DOSSIE_HABILITADO`, `MED_ENVIO_AUTOMATICO`).
+
+**Fontes, na ordem** (`dispute_sources`, uma linha por fonte, payload criptografado):
+
+| Fonte | De onde | Depende de |
+|---|---|---|
+| Transação | Woovi `GET /transaction/{e2e}` | - |
+| Cobrança | Woovi `GET /charge/{correlationID}` | `transaction.charge.correlationID` |
+| Devoluções | Woovi `GET /charge/{correlationID}/refund` | idem |
+| Comprovante | Woovi `GET /receipt/pix-in/{e2e}` (vira evidência PDF) | transação |
+| Venda | unico-api, rota **a criar** (abaixo) | `unicopag_account_id` + correlationID/txid/e2e |
+| Cadastro | unico-api `GET /api/kyc-panel/accounts/{account_id}/register` (existe, KB do KYC 8.22) | `unicopag_account_id` |
+| KYC | KYC `GET /api/onboarding/status?account_id=` (pública) | `unicopag_account_id` |
+
+Fonte que falha não derruba as outras; só `failed` é buscada de novo (no envio do seller, na sincronização
+de hora em hora, no botão "Montar dossiê agora"). A transação vem primeiro porque é ela que liga o e2e à
+cobrança - e, por ela, à venda na plataforma: a chave de junção mais provável com o unico-api é o
+`correlationID` da cobrança, que a plataforma escolhe ao criar a cobrança com a chave da subconta.
+`[inferido]`
+
+**Documentos gerados** (`uploaded_by = system`, `source` = chave de upsert): o comprovante oficial da Woovi,
+o "Registro da venda" (cobrança, pagamento, pedido, entrega, devoluções) e os documentos que a plataforma
+já tem (nota fiscal etc., baixados das URLs que o unico-api devolver - só https, PDF/PNG/JPEG/WEBP, até
+10 MB). Documento gerado que muda antes de ser enviado troca de arquivo **e de correlationID** (o upload da
+Woovi é idempotente por correlationID: com o antigo, ela devolveria o arquivo velho); depois de enviado,
+nunca muda - nasce outro. A "impressão digital" de PDF gerado é o hash dos dados, não dos bytes (o dompdf
+embute a data).
+
+**Conferência** (`disputes.dossier_match`): transação localizada, valor contestado ≤ valor do Pix, Pix pagou
+uma cobrança do recebedor, cobrança criada antes do pagamento, CPF do pagador = CPF do cliente da cobrança,
+nenhuma devolução, venda localizada, valor do pedido = valor do Pix, entrega comprovada (plataforma,
+rastreio do seller ou comprovante anexado), KYC aprovado, relato e comprovantes do seller. Cada item: ok,
+divergente ou sem dado. **Só os itens ok vão para a carta** (como fatos); divergência fica no painel. "Pronto"
+= transação localizada + nenhuma divergência que bloqueia (valor, pagador, devolução, valor do pedido, KYC) +
+alguma prova para mandar.
+
+**MED 2.0:** a disputa pode vir de um pagamento que só foi "parte do caminho do dinheiro"; o pagador pode não
+ser a vítima. Por isso a carta afirma fatos ("o CPF de quem pagou é o mesmo do cliente da cobrança"), nunca
+"o reclamante é o comprador". `[doc-woovi]`
+
+**Do lado do seller:** o link mostra o que a ÚnicoPag já reuniu (só o tipo do documento - o link circula e
+não pode expor o pagador), pede só o que o dossiê não achou (nº do pedido, rastreio) e deixa o arquivo
+opcional quando já há comprovante. Arquivo idêntico (sha256) a uma evidência do caso é ignorado.
+
+**Envio automático** - só com TODAS as travas, senão vai para o analista com o motivo na linha do tempo:
+opção ligada, opt-in na conta (`woovi_accounts.auto_send`), caso em "Defesa recebida", conferência pronta,
+devoluções conferidas e inexistentes, valor até o teto (`MED_ENVIO_AUTOMATICO_TETO_CENTAVOS`) e alegação fora
+de `ACCOUNT_TAKEOVER`/`FRAUDULENT_ACCESS` (conta invadida: o "seller" pode ser o golpista - risco de PLD).
+Um envio por caso de cada vez (lock), um envio consolidado (dossiê + defesa juntos), e 400 da Woovi no
+automático relê o caso. **Não há envio sem o seller:** sem endpoint para aceitar a devolução, não enviar é o
+único jeito de aceitar, e enviar fecha o link.
+
+**LGPD:** payload das fontes criptografado; nos PDFs, CPF/CNPJ, e-mail, telefone e IP mascarados; documento
+do KYC (e a selfie, dado biométrico) nunca vira evidência - do KYC só o status; nada do dossiê vai ao
+Discord. Retenção/anonimização depois do encerramento: decisão do jurídico, ainda não tomada.
+
+### 8.1 Contrato pedido ao unico-api: venda pelo identificador da Woovi
+
+Rota que **não existe hoje** (nenhuma rota de leitura de transação/pedido é conhecida, KB do KYC 8.20/11.13).
+Sem ela o dossiê funciona só com a Woovi. Sugestão:
+
+```
+GET /api/med/sales/lookup?account_id=&correlation_id=&txid=&end_to_end_id=
+X-API-Key: <integração "med", só leitura>     (não reaproveitar a chave "kyc", que escreve)
+```
+
+- Pelo menos um identificador; o unico-api casa pelo que tiver e diz qual em `matched_by`.
+- **404** quando não achar (nunca 500); **409** se a venda for de outra conta que não `account_id`.
+- 200 (pode vir dentro de `data`):
+
+```json
+{
+  "matched_by": "correlation_id",
+  "account_id": "4321",
+  "transaction_id": 123,
+  "amount_total": 25000,
+  "payment_status": "paid",
+  "created_at": "2026-10-10T15:19:00Z",
+  "paid_at": "2026-10-10T15:30:00Z",
+  "order": {"id": "42", "product_type": "physical|digital|service", "items": [{"name": "...", "quantity": 1, "unit_amount": 25000}]},
+  "customer": {"name": "...", "document": "...", "email": "...", "phone": "..."},
+  "checkout": {"ip": "189.10.20.30", "user_agent": "...", "created_at": "..."},
+  "fulfillment": {"status": "delivered|shipped|pending|not_applicable", "carrier": "Correios", "tracking_code": "QB...BR", "delivered_at": "..."},
+  "documents": [{"kind": "invoice|delivery_proof|service_proof|contract", "url": "https://...", "description": "Nota fiscal 42"}]
+}
+```
+
+Valores em centavos. Configurar no MED com `UNICOPAG_SALE_ENDPOINT` (placeholders `{account_id}`,
+`{correlation_id}`, `{txid}`, `{end_to_end_id}`).
+
+## 9. Contratos com o unico-api (entrada)
 
 Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
@@ -171,6 +285,8 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-12** - dossiê automático, conferência e envio automático (seção 8); contrato da rota de venda
+  pedido ao unico-api (8.1); endpoints de transação/cobrança/devolução/comprovante da Woovi (2.1).
 - **2026-10-12** - WhatsApp oficial pela Kapso (seção 6).
 - **2026-10-12** - produção no Forge e `med:diagnostico` (seção 7).
 - **2026-10-12** - papéis e permissões (seção 5).

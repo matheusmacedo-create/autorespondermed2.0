@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Med;
 
+use App\Actions\Med\MatchDossierAction;
 use App\Actions\Med\SubmitSellerDefenseAction;
 use App\Enums\DisputeEventType;
 use App\Enums\EvidenceKind;
@@ -35,6 +36,12 @@ class SellerDefenseForm extends Component
     public string $statement = '';
 
     public bool $declaration = false;
+
+    public string $orderReference = '';
+
+    public string $trackingCode = '';
+
+    public int $duplicatesSkipped = 0;
 
     /**
      * @var array<int, array{kind: string, description: string, file: mixed}>
@@ -106,7 +113,9 @@ class SellerDefenseForm extends Component
 
         $isComplement = $this->dispute->seller_submitted_at !== null;
 
-        if (! $isComplement && count($validated['evidences'] ?? []) === 0) {
+        // Com o dossiê já trazendo o comprovante e o registro da venda, o relato basta;
+        // sem ele, a primeira defesa precisa de pelo menos um comprovante.
+        if (! $isComplement && ! $this->dossierHasProof() && count($validated['evidences'] ?? []) === 0) {
             $this->addError('evidences', 'Anexe pelo menos um comprovante da venda ou do serviço.');
             $this->addEvidence();
 
@@ -120,6 +129,7 @@ class SellerDefenseForm extends Component
                 $validated['statement'],
                 $validated['evidences'] ?? [],
                 $this->submissionMetadata(),
+                ['order_reference' => $validated['orderReference'] ?? null, 'tracking_code' => $validated['trackingCode'] ?? null],
             );
         } catch (RuntimeException $e) {
             $this->blockedMessage = 'Este caso não aceita mais envio pelo link. Fale com o atendimento da ÚnicoPag.';
@@ -128,6 +138,7 @@ class SellerDefenseForm extends Component
         }
 
         $this->submitted = true;
+        $this->duplicatesSkipped = (int) data_get($this->dispute->seller_submission_metadata, 'duplicates_skipped', 0);
         $this->evidences = [];
         $this->statement = '';
         $this->declaration = false;
@@ -149,6 +160,8 @@ class SellerDefenseForm extends Component
             'contactName' => ['required', 'string', 'min:3', 'max:255'],
             'statement' => ['required', 'string', 'min:30', 'max:5000'],
             'declaration' => ['accepted'],
+            'orderReference' => ['nullable', 'string', 'max:100'],
+            'trackingCode' => ['nullable', 'string', 'max:100'],
             'evidences' => ['array', 'max:'.config('med.evidencias.max_arquivos')],
             'evidences.*.kind' => ['required', Rule::in(array_keys(EvidenceKind::sellerOptions()))],
             'evidences.*.description' => ['required', 'string', 'min:5', 'max:450'],
@@ -178,6 +191,8 @@ class SellerDefenseForm extends Component
         return [
             'contactName' => 'nome do responsável',
             'statement' => 'relato',
+            'orderReference' => 'número do pedido',
+            'trackingCode' => 'código de rastreio',
             'evidences.*.kind' => 'tipo do documento',
             'evidences.*.description' => 'descrição',
             'evidences.*.file' => 'arquivo',
@@ -218,11 +233,61 @@ class SellerDefenseForm extends Component
         ]);
     }
 
+    /**
+     * O que a ÚnicoPag já reuniu sozinha - só o tipo do documento, nunca o conteúdo:
+     * o link circula por e-mail/WhatsApp e não pode expor dados do pagador.
+     *
+     * @return array<int, string>
+     */
+    private function dossierItems(): array
+    {
+        if (! $this->dispute) {
+            return [];
+        }
+
+        $items = $this->dispute->evidences()
+            ->where('uploaded_by', 'system')
+            ->where('kind', '!=', EvidenceKind::DEFENSE_LETTER->value)
+            ->get()
+            ->map(fn ($evidence): string => $evidence->kind->label())
+            ->unique()
+            ->values();
+
+        if ($this->check('sale_found') === MatchDossierAction::OK) {
+            $items->push('Pedido localizado na plataforma ÚnicoPag');
+        }
+
+        if ($this->check('delivery') === MatchDossierAction::OK) {
+            $items->push('Registro da entrega');
+        }
+
+        return $items->unique()->values()->all();
+    }
+
+    private function dossierHasProof(): bool
+    {
+        return $this->dispute !== null && $this->dispute->evidences()
+            ->whereIn('kind', [EvidenceKind::PIX_RECEIPT->value, EvidenceKind::SALE_RECORD->value])
+            ->exists();
+    }
+
+    private function check(string $key): ?string
+    {
+        return collect((array) data_get($this->dispute?->dossier_match, 'checks', []))->firstWhere('key', $key)['status'] ?? null;
+    }
+
     public function render()
     {
+        $dossier = $this->dossierItems();
+
         return view('livewire.med.seller-defense-form', [
             'pageTitle' => 'Defesa de contestação Pix',
             'kinds' => EvidenceKind::sellerOptions(),
+            'dossierItems' => $dossier,
+            'filesOptional' => $this->dossierHasProof(),
+            // Pede só o que o dossiê não conseguiu sozinho.
+            'askOrder' => $this->check('sale_found') !== MatchDossierAction::OK,
+            'askTracking' => $this->check('delivery') !== MatchDossierAction::OK,
         ]);
     }
 }

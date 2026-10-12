@@ -48,6 +48,10 @@ return new class extends Migration
             // defense_letter). Null para arquivo do seller ou do analista.
             $table->string('source', 40)->nullable()->after('uploaded_by');
 
+            // Descartada pelo analista antes do envio: some do caso, mas a linha fica -
+            // a remontagem do dossiê não traz de volta o mesmo documento.
+            $table->softDeletes();
+
             $table->index(['dispute_id', 'content_hash']);
             $table->index(['dispute_id', 'source']);
         });
@@ -67,7 +71,7 @@ return new class extends Migration
         Schema::table('dispute_evidences', function (Blueprint $table) {
             $table->dropIndex(['dispute_id', 'content_hash']);
             $table->dropIndex(['dispute_id', 'source']);
-            $table->dropColumn(['content_hash', 'source']);
+            $table->dropColumn(['content_hash', 'source', 'deleted_at']);
         });
         Schema::table('disputes', fn (Blueprint $table) => $table->dropColumn(['dossier_status', 'dossier_built_at', 'dossier_match', 'seller_details']));
         Schema::dropIfExists('dispute_sources');

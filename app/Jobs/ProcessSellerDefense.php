@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Actions\Med\AutoSendDisputeAction;
 use App\Actions\Med\BuildDossierAction;
 use App\Actions\Med\MatchDossierAction;
+use App\Enums\DossierSource;
 use App\Models\Dispute;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -36,9 +37,15 @@ class ProcessSellerDefense implements ShouldQueue
         }
 
         if (config('med.dossie.habilitado')) {
-            // Sem refresh: o que já deu certo fica; o que falhou ou ainda não foi
-            // buscado é buscado agora. A conferência roda no fim do build.
-            $build->handle($dispute);
+            // O que já deu certo fica, o que falhou ou ficou pendente é buscado agora -
+            // e as fontes que alimentam as travas do envio automático são relidas
+            // sempre: devolução feita ou KYC bloqueado depois da chegada do MED não
+            // podem passar pelo retrato antigo.
+            $build->handle($dispute, refreshSources: [
+                DossierSource::WOOVI_TRANSACTION,
+                DossierSource::WOOVI_REFUNDS,
+                DossierSource::KYC_STATUS,
+            ]);
         } elseif ($dispute->dossier_built_at !== null) {
             $match->handle($dispute);
         }

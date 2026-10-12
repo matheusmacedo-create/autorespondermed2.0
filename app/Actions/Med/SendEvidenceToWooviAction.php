@@ -10,7 +10,7 @@ use App\Services\DiscordNotificationService;
 use App\Services\DisputeEventRecorder;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
-use Illuminate\Support\Facades\Cache;
+use App\Support\DisputeLock;
 use Illuminate\Support\Facades\URL;
 use RuntimeException;
 
@@ -37,19 +37,10 @@ class SendEvidenceToWooviAction
      */
     public function handle(Dispute $dispute, ?int $userId = null, string $source = 'analyst'): int
     {
-        // Um envio por caso de cada vez: o clique do analista, o envio automático e o
-        // retry de um job podiam mandar duas cartas diferentes ao mesmo tempo.
-        $lock = Cache::lock("med:envio:{$dispute->id}", 300);
-
-        if (! $lock->get()) {
-            throw new RuntimeException('Já há um envio deste caso em andamento. Aguarde e confira a linha do tempo.');
-        }
-
-        try {
-            return $this->send($dispute->fresh() ?? $dispute, $userId, $source);
-        } finally {
-            $lock->release();
-        }
+        // Um envio por caso de cada vez, e nunca durante a montagem do dossiê: o
+        // clique do analista, o envio automático e o retry de um job podiam mandar
+        // duas cartas diferentes, ou subir um documento que a montagem estava trocando.
+        return DisputeLock::run($dispute, fn () => $this->send($dispute->fresh() ?? $dispute, $userId, $source), waitSeconds: 0);
     }
 
     private function send(Dispute $dispute, ?int $userId, string $source): int

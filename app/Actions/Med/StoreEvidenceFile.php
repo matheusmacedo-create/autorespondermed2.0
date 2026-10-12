@@ -22,7 +22,7 @@ class StoreEvidenceFile
     {
         $hash = hash_file('sha256', $file->getRealPath()) ?: null;
 
-        if ($hash !== null && $dispute->evidences()->where('content_hash', $hash)->exists()) {
+        if ($hash !== null && $dispute->evidences()->withTrashed()->where('content_hash', $hash)->exists()) {
             return null;
         }
 

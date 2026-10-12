@@ -13,6 +13,7 @@ enum DossierSource: string
     case WOOVI_CHARGE = 'woovi_charge';
     case WOOVI_REFUNDS = 'woovi_refunds';
     case WOOVI_RECEIPT = 'woovi_receipt';
+    case WOOVI_FUNDS_RECOVERY = 'woovi_funds_recovery';
     case UNICOPAG_SALE = 'unicopag_sale';
     case UNICOPAG_REGISTER = 'unicopag_register';
     case KYC_STATUS = 'kyc_status';
@@ -24,6 +25,7 @@ enum DossierSource: string
             self::WOOVI_CHARGE => 'Cobrança Pix (Woovi)',
             self::WOOVI_REFUNDS => 'Devoluções já feitas (Woovi)',
             self::WOOVI_RECEIPT => 'Comprovante oficial (Woovi)',
+            self::WOOVI_FUNDS_RECOVERY => 'Alegação do MED (Woovi, funds-recovery)',
             self::UNICOPAG_SALE => 'Venda na plataforma (unico-api)',
             self::UNICOPAG_REGISTER => 'Cadastro do seller (unico-api)',
             self::KYC_STATUS => 'KYC do seller',

@@ -158,6 +158,51 @@ class DisputeActions
             });
     }
 
+    /**
+     * Tira do caso uma evidência ainda não enviada (documento errado da plataforma,
+     * arquivo do seller que não serve). O que já foi para a Woovi não sai mais.
+     */
+    public static function discardEvidence(): Action
+    {
+        return Action::make('discardEvidence')
+            ->label('Descartar evidência')
+            ->icon('heroicon-o-trash')
+            ->color('danger')
+            ->modalDescription('A evidência sai do caso e não vai para a Woovi. Só vale para o que ainda não foi enviado.')
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && $livewire->getRecord()->status->canSendToWoovi()
+                && $livewire->getRecord()->evidences()->whereNull('sent_at')->where('kind', '!=', EvidenceKind::DEFENSE_LETTER->value)->exists())
+            ->schema([
+                Select::make('evidence_id')
+                    ->label('Evidência')
+                    ->required()
+                    ->options(fn (ViewRecord $livewire): array => $livewire->getRecord()->evidences()
+                        ->whereNull('sent_at')
+                        ->where('kind', '!=', EvidenceKind::DEFENSE_LETTER->value)
+                        ->get()
+                        ->mapWithKeys(fn ($e): array => [$e->id => "{$e->kind->label()} - {$e->original_name}"])
+                        ->all()),
+                Textarea::make('reason')->label('Por quê')->required()->maxLength(500)->rows(2),
+            ])
+            ->action(function (array $data, ViewRecord $livewire, DisputeEventRecorder $events): void {
+                $dispute = $livewire->getRecord();
+                $evidence = $dispute->evidences()->whereNull('sent_at')->whereKey($data['evidence_id'])->first();
+
+                if (! $evidence || $evidence->kind === EvidenceKind::DEFENSE_LETTER) {
+                    Notification::make()->warning()->title('Evidência não pode ser descartada')->send();
+
+                    return;
+                }
+
+                // Soft delete: some do caso e do envio; o arquivo fica para auditoria.
+                $evidence->delete();
+
+                $events->record(DisputeEventType::EVIDENCE_DISCARDED, $dispute, "Descartada: {$evidence->kind->label()} ({$evidence->original_name}). Motivo: {$data['reason']}", ['source' => $evidence->source], source: 'analyst');
+                Notification::make()->success()->title('Evidência descartada')->send();
+                $livewire->getRecord()->refresh();
+            });
+    }
+
     public static function rebuildDossier(): Action
     {
         return Action::make('rebuildDossier')

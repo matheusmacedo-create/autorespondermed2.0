@@ -29,6 +29,7 @@ class ViewDispute extends ViewRecord
             ActionGroup::make([
                 DisputeActions::editAnalystNotes(),
                 DisputeActions::attachEvidence(),
+                DisputeActions::discardEvidence(),
                 DisputeActions::resendSellerNotice(),
                 DisputeActions::rebuildDossier(),
                 DisputeActions::syncWithWoovi(),

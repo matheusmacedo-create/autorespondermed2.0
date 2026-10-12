@@ -24,7 +24,9 @@ class BuildDossierTest extends DossierTestCase
         $dispute = $this->receive();
 
         $statuses = $dispute->sources->mapWithKeys(fn (DisputeSource $s): array => [$s->source->value => $s->status]);
-        $this->assertCount(7, $statuses);
+        $this->assertCount(8, $statuses);
+        // A alegação veio da recuperação de fundos (o webhook não traz).
+        $this->assertSame('SCAM', $dispute->situation_type);
         $statuses->each(fn (SourceStatus $status, string $source) => $this->assertSame(SourceStatus::OK, $status, $source));
 
         // O GET de MED não traz valor: veio da transação.

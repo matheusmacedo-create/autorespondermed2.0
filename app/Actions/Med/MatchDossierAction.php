@@ -47,7 +47,9 @@ class MatchDossierAction
         $kyc = $dispute->sourcePayload(DossierSource::KYC_STATUS);
 
         $txValue = is_numeric($transaction['value'] ?? null) ? (int) round((float) $transaction['value']) : null;
-        $customerTaxId = data_get($charge, 'customer.taxID.taxID') ?? data_get($transaction, 'customer.taxID.taxID');
+        // Só o cliente DA COBRANÇA prova vínculo: `transaction.customer` é criado a
+        // partir do próprio pagador e compará-lo com o pagador sempre "bateria".
+        $customerTaxId = data_get($charge, 'customer.taxID.taxID');
 
         $checks = [
             $this->check('transaction_found', 'Transação localizada na Woovi', true, match (true) {
@@ -73,7 +75,7 @@ class MatchDossierAction
             $this->check('payer_is_customer', 'Quem pagou é o cliente da cobrança', true, match (Mask::sameTaxId(data_get($transaction, 'payer.taxID.taxID'), $customerTaxId)) {
                 true => [self::OK, 'Mesmo CPF/CNPJ no pagamento e no cadastro da cobrança.'],
                 false => [self::DIVERGENT, 'CPF/CNPJ de quem pagou é diferente do cliente da cobrança.'],
-                null => [self::MISSING, 'Sem documento do pagador ou do cliente para comparar.'],
+                null => [self::MISSING, 'Sem documento do pagador ou do cliente da cobrança para comparar.'],
             }, 'O CPF/CNPJ de quem pagou é o mesmo do cliente cadastrado na cobrança.'),
 
             $this->check('no_refund', 'Nenhuma devolução já feita', true, match (true) {
@@ -144,7 +146,9 @@ class MatchDossierAction
     }
 
     /**
-     * Fatos confirmados para a carta de defesa (só os itens ok que têm frase).
+     * Fatos confirmados para a carta de defesa (só os itens ok que têm frase). O que
+     * só o seller declarou (rastreio digitado, comprovante enviado por ele) fica ok
+     * na conferência, mas sem frase: a ÚnicoPag não afirma o que não conferiu.
      *
      * @return array<int, string>
      */
@@ -199,8 +203,11 @@ class MatchDossierAction
         return match (true) {
             $status === 'delivered' || filled(data_get($sale, 'fulfillment.delivered_at')) => [self::OK, 'Entrega registrada na plataforma.', 'A entrega do pedido está registrada na plataforma.'],
             $status === 'not_applicable' => [self::OK, 'Produto/serviço sem entrega física.', 'O produto ou serviço vendido não tem entrega física.'],
-            filled(data_get($sale, 'fulfillment.tracking_code')) || filled(data_get($dispute->seller_details, 'tracking_code')) => [self::OK, 'Código de rastreio registrado.', 'O envio do pedido tem código de rastreio registrado.'],
-            $dispute->evidences->contains(fn (DisputeEvidence $e): bool => in_array($e->kind, [EvidenceKind::DELIVERY_PROOF, EvidenceKind::SERVICE_PROOF], true)) => [self::OK, 'Comprovante de entrega/serviço anexado.', 'Há comprovante de entrega ou de prestação do serviço entre as evidências.'],
+            filled(data_get($sale, 'fulfillment.tracking_code')) => [self::OK, 'Código de rastreio registrado na plataforma.', 'O envio do pedido tem código de rastreio registrado na plataforma.'],
+            $dispute->evidences->contains(fn (DisputeEvidence $e): bool => $e->uploaded_by === 'system' && in_array($e->kind, [EvidenceKind::DELIVERY_PROOF, EvidenceKind::SERVICE_PROOF], true)) => [self::OK, 'Comprovante de entrega/serviço da plataforma.', 'Há comprovante de entrega ou de prestação do serviço registrado na plataforma.'],
+            // Declarado pelo seller: conta para a conferência, não vira fato da carta.
+            filled(data_get($dispute->seller_details, 'tracking_code')) => [self::OK, 'Rastreio informado pelo seller (não conferido).', ''],
+            $dispute->evidences->contains(fn (DisputeEvidence $e): bool => $e->uploaded_by !== 'system' && in_array($e->kind, [EvidenceKind::DELIVERY_PROOF, EvidenceKind::SERVICE_PROOF], true)) => [self::OK, 'Comprovante de entrega/serviço anexado (não conferido).', ''],
             default => [self::MISSING, 'Nenhum registro de entrega.'],
         };
     }

@@ -34,7 +34,9 @@ class StoreSystemEvidence
     ): DisputeEvidence {
         $fingerprint ??= hash('sha256', $contents);
 
-        $latest = $dispute->evidences()->where('source', $source)->latest('id')->first();
+        // withTrashed: documento descartado pelo analista conta como "já existe" - a
+        // remontagem não o traz de volta enquanto o conteúdo for o mesmo.
+        $latest = $dispute->evidences()->withTrashed()->where('source', $source)->latest('id')->first();
 
         if ($latest && $latest->content_hash === $fingerprint) {
             return $latest;
@@ -53,7 +55,7 @@ class StoreSystemEvidence
             'source' => $source,
         ];
 
-        if ($latest && $latest->sent_at === null) {
+        if ($latest && $latest->sent_at === null && ! $latest->trashed()) {
             Storage::disk($latest->disk)->put($latest->path, $contents);
 
             $latest->fill($attributes + [
@@ -64,6 +66,14 @@ class StoreSystemEvidence
             ])->save();
 
             return $latest;
+        }
+
+        // Mesmo conteúdo que o caso já tem (de outra fonte, ou o seller já mandou):
+        // não cria outra evidência igual para ir duas vezes à Woovi.
+        $sameContent = $dispute->evidences()->withTrashed()->where('content_hash', $fingerprint)->first();
+
+        if ($sameContent) {
+            return $sameContent;
         }
 
         $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: 'pdf';

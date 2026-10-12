@@ -67,6 +67,11 @@ abstract class DossierTestCase extends TestCase
                 'additionalInfo' => [['key' => 'Produto', 'value' => 'Fone bluetooth X1']],
             ]]),
             'receipt' => Http::response('%PDF-1.4 comprovante woovi', 200, ['Content-Type' => 'application/pdf']),
+            // Formato da doc funds-recovery-disputes-api: uma lista.
+            'funds' => Http::response([[
+                'type' => 'MED', 'status' => 'IN_REVIEW', 'sentOrReceived' => 'RECEIVED', 'situationType' => 'SCAM',
+                'value' => 25000, 'endToEndId' => self::E2E, 'disputeReason' => 'Pagamento apontado como parte de um golpe.',
+            ]]),
             'sale' => Http::response(['data' => [
                 'matched_by' => 'correlation_id',
                 'amount_total' => 25000,
@@ -94,6 +99,7 @@ abstract class DossierTestCase extends TestCase
             'api.woovi.test/api/v1/charge/*/refund' => $f['refunds'],
             'api.woovi.test/api/v1/charge/*' => $f['charge'],
             'api.woovi.test/api/v1/receipt/pix-in/*' => $f['receipt'],
+            'api.woovi.test/api/v1/funds-recovery/*/disputes' => $f['funds'],
             'api.woovi.test/api/v1/files' => Http::sequence()
                 ->push(['file' => ['id' => 'file-1']], 201)->push(['file' => ['id' => 'file-2']], 201)
                 ->push(['file' => ['id' => 'file-3']], 201)->push(['file' => ['id' => 'file-4']], 201)

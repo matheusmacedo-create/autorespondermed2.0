@@ -95,6 +95,25 @@ class WooviClient
     }
 
     /**
+     * GET /api/v1/funds-recovery/{endToEndId}/disputes - disputas (MED recebido) da
+     * conta ligadas à recuperação de fundos, com o `situationType` (SCAM,
+     * ACCOUNT_TAKEOVER...) que o webhook e o GET /dispute não trazem. Exige a
+     * feature "MED API" na conta (sem ela, 403). Contrato só na doc (não está no
+     * OpenAPI): a resposta é uma lista.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getFundsRecoveryDisputes(string $endToEndId): array
+    {
+        $response = $this->send(fn (PendingRequest $http) => $http->get('/api/v1/funds-recovery/'.rawurlencode($endToEndId).'/disputes'), 'a consulta da recuperação de fundos');
+
+        $json = $response->json();
+        $list = is_array($json) && array_is_list($json) ? $json : (array) ($json['disputes'] ?? []);
+
+        return array_values(array_filter($list, 'is_array'));
+    }
+
+    /**
      * GET /api/v1/dispute - disputas da conta no intervalo, todas as páginas.
      *
      * @return array<int, array<string, mixed>>

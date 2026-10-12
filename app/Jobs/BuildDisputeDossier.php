@@ -41,6 +41,13 @@ class BuildDisputeDossier implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $build->handle($dispute, $this->refresh);
+        $dispute = $build->handle($dispute, $this->refresh);
+
+        // A montagem não lança por fonte que falha; sem a transação (o que mais
+        // importa), volta para a fila com espera, até as tentativas acabarem. Depois
+        // disso a sincronização de hora em hora pega o caso.
+        if ($dispute->dossier_status === 'failed' && $this->attempts() < $this->tries) {
+            $this->release($this->backoff[$this->attempts() - 1] ?? 300);
+        }
     }
 }

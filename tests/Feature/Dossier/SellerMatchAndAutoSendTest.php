@@ -11,6 +11,7 @@ use App\Enums\EvidenceKind;
 use App\Livewire\Med\SellerDefenseForm;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
+use App\Support\DisputeLock;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -188,14 +189,14 @@ class SellerMatchAndAutoSendTest extends DossierTestCase
     public function test_two_sends_of_the_same_case_cannot_run_at_once(): void
     {
         $dispute = $this->defend($this->receive());
-        $lock = Cache::lock("med:envio:{$dispute->id}", 300);
+        $lock = Cache::lock(DisputeLock::key($dispute), 300);
         $lock->get();
 
         try {
             app(SendEvidenceToWooviAction::class)->handle($dispute);
             $this->fail('Era para recusar o envio concorrente.');
         } catch (RuntimeException $e) {
-            $this->assertStringContainsString('em andamento', $e->getMessage());
+            $this->assertStringContainsString('sendo processado', $e->getMessage());
         } finally {
             $lock->release();
         }

@@ -192,29 +192,41 @@ travas deixarem - envia sozinho. Pedido do Matheus em 12/10/2026. Desligado por 
 | Cobrança | Woovi `GET /charge/{correlationID}` | `transaction.charge.correlationID` |
 | Devoluções | Woovi `GET /charge/{correlationID}/refund` | idem |
 | Comprovante | Woovi `GET /receipt/pix-in/{e2e}` (vira evidência PDF) | transação |
+| Alegação | Woovi `GET /funds-recovery/{e2e}/disputes` - `situationType` (SCAM, ACCOUNT_TAKEOVER...) | feature "MED API" (403 = não configurado) |
 | Venda | unico-api, rota **a criar** (abaixo) | `unicopag_account_id` + correlationID/txid/e2e |
 | Cadastro | unico-api `GET /api/kyc-panel/accounts/{account_id}/register` (existe, KB do KYC 8.22) | `unicopag_account_id` |
 | KYC | KYC `GET /api/onboarding/status?account_id=` (pública) | `unicopag_account_id` |
 
-Fonte que falha não derruba as outras; só `failed` é buscada de novo (no envio do seller, na sincronização
-de hora em hora, no botão "Montar dossiê agora"). A transação vem primeiro porque é ela que liga o e2e à
+Fonte que falha não derruba as outras. `failed`, `skipped` (esperava a transação) e `not_configured` são
+reavaliadas a cada montagem - no job (que volta para a fila se a transação falhar), na sincronização de hora
+em hora (que reenfileira caso sem dossiê, `failed`/`partial` ou com fonte que falhou), na defesa do seller e no
+botão "Montar dossiê agora"; `not_found` é resposta e fica. **Releitura que falha não apaga dado bom**: fica o
+payload anterior, com o erro guardado e o `fetched_at` antigo. Montagem e envio usam a mesma trava por caso
+(`DisputeLock`), e a montagem sempre relê o caso do banco antes de começar. A transação vem primeiro porque é ela que liga o e2e à
 cobrança - e, por ela, à venda na plataforma: a chave de junção mais provável com o unico-api é o
 `correlationID` da cobrança, que a plataforma escolhe ao criar a cobrança com a chave da subconta.
 `[inferido]`
 
 **Documentos gerados** (`uploaded_by = system`, `source` = chave de upsert): o comprovante oficial da Woovi,
 o "Registro da venda" (cobrança, pagamento, pedido, entrega, devoluções) e os documentos que a plataforma
-já tem (nota fiscal etc., baixados das URLs que o unico-api devolver - só https, PDF/PNG/JPEG/WEBP, até
-10 MB). Documento gerado que muda antes de ser enviado troca de arquivo **e de correlationID** (o upload da
+já tem (nota fiscal etc., baixados das URLs que o unico-api devolver - só https, sem redirect, tipo pelos
+bytes, PDF/PNG/JPEG/WEBP, até 10 MB). Documento da plataforma só entra quando o valor da venda bate com o do
+Pix: pedido errado traria a nota (e os dados) de outro comprador. A identidade do documento entre montagens é o
+`id` dele, ou tipo + URL sem a query (URL pré-assinada muda a cada resposta); conteúdo idêntico a uma evidência
+do caso nunca vira outra linha. O analista pode **descartar** evidência ainda não enviada (soft delete: some do
+envio, e a remontagem não a traz de volta). Documento gerado que muda antes de ser enviado troca de arquivo **e de correlationID** (o upload da
 Woovi é idempotente por correlationID: com o antigo, ela devolveria o arquivo velho); depois de enviado,
 nunca muda - nasce outro. A "impressão digital" de PDF gerado é o hash dos dados, não dos bytes (o dompdf
 embute a data).
 
 **Conferência** (`disputes.dossier_match`): transação localizada, valor contestado ≤ valor do Pix, Pix pagou
-uma cobrança do recebedor, cobrança criada antes do pagamento, CPF do pagador = CPF do cliente da cobrança,
+uma cobrança do recebedor, cobrança criada antes do pagamento, CPF do pagador = CPF do cliente **da cobrança**
+(nunca `transaction.customer`, que a Woovi cria a partir do próprio pagador - compará-lo "bateria" sempre),
 nenhuma devolução, venda localizada, valor do pedido = valor do Pix, entrega comprovada (plataforma,
 rastreio do seller ou comprovante anexado), KYC aprovado, relato e comprovantes do seller. Cada item: ok,
-divergente ou sem dado. **Só os itens ok vão para a carta** (como fatos); divergência fica no painel. "Pronto"
+divergente ou sem dado. **Só os itens ok vão para a carta** (como fatos); divergência fica no painel. O que só
+o seller declarou (rastreio digitado, comprovante enviado por ele) fica ok na conferência, mas **não vira fato
+"conferido pela ÚnicoPag"**. "Pronto"
 = transação localizada + nenhuma divergência que bloqueia (valor, pagador, devolução, valor do pedido, KYC) +
 alguma prova para mandar.
 
@@ -226,10 +238,21 @@ ser a vítima. Por isso a carta afirma fatos ("o CPF de quem pagou é o mesmo do
 não pode expor o pagador), pede só o que o dossiê não achou (nº do pedido, rastreio) e deixa o arquivo
 opcional quando já há comprovante. Arquivo idêntico (sha256) a uma evidência do caso é ignorado.
 
-**Envio automático** - só com TODAS as travas, senão vai para o analista com o motivo na linha do tempo:
-opção ligada, opt-in na conta (`woovi_accounts.auto_send`), caso em "Defesa recebida", conferência pronta,
-devoluções conferidas e inexistentes, valor até o teto (`MED_ENVIO_AUTOMATICO_TETO_CENTAVOS`) e alegação fora
-de `ACCOUNT_TAKEOVER`/`FRAUDULENT_ACCESS` (conta invadida: o "seller" pode ser o golpista - risco de PLD).
+**Envio automático** - só com TODAS as travas, senão vai para o analista com o motivo na linha do tempo. Na
+dúvida, bloqueia (dado que falta ou não foi relido é trava, não passe):
+- opção ligada e opt-in na conta (`woovi_accounts.auto_send`); caso em "Defesa recebida";
+- **o analista nunca pediu complemento** no caso (a resposta ao que ele pediu é ele que vê);
+- conferência pronta; devoluções e KYC **relidos depois da defesa** (`ProcessSellerDefense` relê transação,
+  devoluções e KYC) - devolução já feita ou KYC não aprovado bloqueiam, releitura que falhou também;
+- valor até o teto (`MED_ENVIO_AUTOMATICO_TETO_CENTAVOS`);
+- **alegação conhecida** (`situationType`, só pela rota de recuperação de fundos) e fora de
+  `ACCOUNT_TAKEOVER`/`FRAUDULENT_ACCESS`/`COERCION`; sem alegação, não envia (`MED_ENVIO_AUTOMATICO_EXIGIR_SITUACAO`);
+- motivo da disputa sem sinal de conta invadida/coação (`MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS`).
+
+Conta invadida ou coação: o "seller" pode ser o golpista - defender sozinho é risco de PLD. **Na prática, sem a
+feature "MED API" na conta a Woovi não informa a alegação e o envio automático não acontece** - de propósito.
+Revisão adversarial de 12/10/2026 (5 lentes, 3 céticos por achado): 13 problemas confirmados, todos corrigidos
+com teste de regressão (`tests/Feature/Dossier/ReviewRegressionTest.php`).
 Um envio por caso de cada vez (lock), um envio consolidado (dossiê + defesa juntos), e 400 da Woovi no
 automático relê o caso. **Não há envio sem o seller:** sem endpoint para aceitar a devolução, não enviar é o
 único jeito de aceitar, e enviar fecha o link.

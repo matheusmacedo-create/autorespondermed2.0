@@ -32,6 +32,7 @@ enum DisputeEventType: string
     case DUPLICATE_EVIDENCE_SKIPPED = 'duplicate_evidence_skipped';
     case AUTO_SENT = 'auto_sent';
     case AUTO_SEND_SKIPPED = 'auto_send_skipped';
+    case EVIDENCE_DISCARDED = 'evidence_discarded';
 
     public function label(): string
     {
@@ -61,6 +62,7 @@ enum DisputeEventType: string
             self::DUPLICATE_EVIDENCE_SKIPPED => 'Arquivo repetido ignorado',
             self::AUTO_SENT => 'Enviado automaticamente',
             self::AUTO_SEND_SKIPPED => 'Envio automático não feito',
+            self::EVIDENCE_DISCARDED => 'Evidência descartada',
         };
     }
 

@@ -134,7 +134,11 @@ class IngestDisputeAction
             // montado. Best-effort - nunca pode derrubar a ingestão (o retry do webhook
             // veria o caso como já criado e o seller ficaria sem aviso).
             if (config('med.dossie.habilitado')) {
-                rescue(fn () => BuildDisputeDossier::dispatch($dispute->id), report: true);
+                // Closure com corpo: o PendingDispatch é enfileirado no __destruct, e com
+                // arrow function isso aconteceria fora do rescue.
+                rescue(function () use ($dispute): void {
+                    BuildDisputeDossier::dispatch($dispute->id);
+                }, report: true);
             }
 
             return $dispute;

@@ -79,7 +79,13 @@ return [
     'envio_automatico' => [
         'habilitado' => (bool) env('MED_ENVIO_AUTOMATICO', false),
         'teto_centavos' => (int) env('MED_ENVIO_AUTOMATICO_TETO_CENTAVOS', 100000),
-        'situacoes_bloqueadas' => array_filter(explode(',', (string) env('MED_ENVIO_AUTOMATICO_SITUACOES_BLOQUEADAS', 'ACCOUNT_TAKEOVER,FRAUDULENT_ACCESS'))),
+        'situacoes_bloqueadas' => array_filter(explode(',', (string) env('MED_ENVIO_AUTOMATICO_SITUACOES_BLOQUEADAS', 'ACCOUNT_TAKEOVER,FRAUDULENT_ACCESS,COERCION'))),
+        // A Woovi só informa a alegação (situationType) pela rota de recuperação de
+        // fundos, que exige a feature "MED API" na conta. Sem a alegação não dá para
+        // saber se é conta invadida: por padrão, sem ela não há envio automático.
+        'exigir_situacao' => (bool) env('MED_ENVIO_AUTOMATICO_EXIGIR_SITUACAO', true),
+        // Motivo (texto livre da disputa) que também tira do automático.
+        'motivos_bloqueados' => array_filter(array_map('trim', explode(',', (string) env('MED_ENVIO_AUTOMATICO_MOTIVOS_BLOQUEADOS', 'invad,takeover,acesso indevido,sequestro,coação,coacao,coercion')))),
     ],
 
     /*

@@ -101,7 +101,9 @@ class SubmitSellerDefenseAction
         // Cruza com o dossiê, completa o que faltava e - se a opção e as travas
         // deixarem - envia sozinho. Fora da requisição do seller.
         if (config('med.dossie.habilitado') || config('med.envio_automatico.habilitado')) {
-            rescue(fn () => ProcessSellerDefense::dispatch($dispute->id), report: true);
+            rescue(function () use ($dispute): void {
+                ProcessSellerDefense::dispatch($dispute->id);
+            }, report: true);
         }
 
         return $dispute;

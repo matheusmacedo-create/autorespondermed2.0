@@ -13,17 +13,22 @@ use App\Services\Kyc\KycClient;
 use App\Services\Unicopag\UnicopagClient;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
+use App\Support\DisputeLock;
 use Closure;
 use Throwable;
 
 /**
  * Monta o dossiê automático do caso: busca cada fonte, guarda o que veio (payload
- * criptografado) e gera as evidências do sistema - comprovante oficial da Woovi e
- * registro da venda - antes de o seller responder. No fim, roda a conferência.
+ * criptografado) e gera as evidências do sistema - comprovante oficial da Woovi,
+ * registro da venda e os documentos que a plataforma já tem - antes de o seller
+ * responder. No fim, roda a conferência.
  *
- * Fonte que falha não derruba as outras e nada aqui lança: o dossiê é um extra e
- * nunca pode travar a ingestão do MED nem a defesa do seller. Fonte que já deu
- * certo não é buscada de novo, a não ser com $refresh (botão "Montar dossiê agora").
+ * - Roda sob a trava do caso (DisputeLock): montagem e envio nunca se cruzam.
+ * - Fonte que falha não derruba as outras e nada aqui lança por causa de fonte.
+ * - O que já deu certo não é buscado de novo, salvo $refresh (tudo) ou
+ *   $refreshSources (só essas - as que alimentam travas do envio automático).
+ * - Releitura que falha NÃO apaga o que já estava ok: fica o dado anterior, com o
+ *   erro registrado e o fetched_at antigo (quem exige dado recente vê que não é).
  */
 class BuildDossierAction
 {
@@ -37,20 +42,34 @@ class BuildDossierAction
         private readonly DisputeEventRecorder $events,
     ) {}
 
-    public function handle(Dispute $dispute, bool $refresh = false): Dispute
+    /**
+     * @param  array<int, DossierSource>  $refreshSources
+     */
+    public function handle(Dispute $dispute, bool $refresh = false, array $refreshSources = []): Dispute
+    {
+        return DisputeLock::run($dispute, fn () => $this->build($dispute->refresh(), $refresh, $refreshSources));
+    }
+
+    /**
+     * @param  array<int, DossierSource>  $refreshSources
+     */
+    private function build(Dispute $dispute, bool $refresh, array $refreshSources): Dispute
     {
         $dispute->loadMissing('wooviAccount');
         $woovi = WooviClient::for($dispute->wooviAccount);
         $accountId = (string) $dispute->wooviAccount->unicopag_account_id;
+        $again = fn (DossierSource $source): bool => $refresh || in_array($source, $refreshSources, true);
 
-        $transaction = $this->fetch($dispute, DossierSource::WOOVI_TRANSACTION, $refresh, function () use ($woovi, $dispute) {
+        $transaction = $this->fetch($dispute, DossierSource::WOOVI_TRANSACTION, $again, function () use ($woovi, $dispute) {
             return $this->wooviOrNotFound(fn () => $woovi->getTransaction($dispute->end_to_end_id));
         });
 
         $correlationId = $this->string(data_get($transaction, 'charge.correlationID'));
 
-        $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $refresh, function () use ($woovi, $transaction, $correlationId) {
-            // Pix avulso (direto na chave) não tem cobrança: não há o que buscar.
+        // Sem a transação, o que depende dela fica "skipped" e é reavaliado na
+        // próxima montagem - não é a mesma coisa que Pix avulso (transação ok sem
+        // cobrança), que é resposta definitiva.
+        $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $again, function () use ($woovi, $transaction, $correlationId) {
             if ($transaction === null || $correlationId === null) {
                 return [SourceStatus::SKIPPED, null];
             }
@@ -58,15 +77,15 @@ class BuildDossierAction
             return $this->wooviOrNotFound(fn () => $woovi->getCharge($correlationId));
         });
 
-        $this->fetch($dispute, DossierSource::WOOVI_REFUNDS, $refresh, function () use ($woovi, $correlationId) {
-            if ($correlationId === null) {
+        $this->fetch($dispute, DossierSource::WOOVI_REFUNDS, $again, function () use ($woovi, $transaction, $correlationId) {
+            if ($transaction === null || $correlationId === null) {
                 return [SourceStatus::SKIPPED, null];
             }
 
             return $this->wooviOrNotFound(fn () => ['refunds' => $woovi->getChargeRefunds($correlationId)]);
         });
 
-        $this->fetch($dispute, DossierSource::WOOVI_RECEIPT, $refresh, function () use ($woovi, $dispute, $transaction) {
+        $this->fetch($dispute, DossierSource::WOOVI_RECEIPT, $again, function () use ($woovi, $dispute, $transaction) {
             if (! config('med.dossie.comprovante_woovi') || $transaction === null) {
                 return [SourceStatus::SKIPPED, null];
             }
@@ -94,27 +113,51 @@ class BuildDossierAction
             return [SourceStatus::OK, ['stored' => true]];
         });
 
-        $this->fetch($dispute, DossierSource::UNICOPAG_SALE, $refresh, function () use ($dispute, $accountId, $transaction, $correlationId) {
+        $this->fetch($dispute, DossierSource::WOOVI_FUNDS_RECOVERY, $again, function () use ($woovi, $dispute) {
+            try {
+                $disputes = $woovi->getFundsRecoveryDisputes($dispute->end_to_end_id);
+            } catch (WooviException $e) {
+                // 403 = conta sem a feature "MED API" (ou AppID sem escopo): é configuração.
+                return match (true) {
+                    $e->status === 403 => [SourceStatus::NOT_CONFIGURED, null],
+                    $e->isNotFound() => [SourceStatus::NOT_FOUND, null],
+                    default => throw $e,
+                };
+            }
+
+            $mine = collect($disputes)->first(fn (array $d): bool => ($d['endToEndId'] ?? null) === $dispute->end_to_end_id
+                && strtoupper((string) ($d['sentOrReceived'] ?? 'RECEIVED')) === 'RECEIVED');
+
+            return $mine === null ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $mine];
+        });
+
+        $this->fetch($dispute, DossierSource::UNICOPAG_SALE, $again, function () use ($dispute, $accountId, $transaction, $correlationId) {
             if (! $this->unicopag->saleConfigured() || $accountId === '') {
                 return [SourceStatus::NOT_CONFIGURED, null];
             }
 
+            // Sem a transação não há correlationID/txid para casar: "não achou" sem
+            // os identificadores não seria resposta.
+            if ($transaction === null) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
             $sale = $this->unicopag->sale($accountId, $correlationId, $this->string(data_get($transaction, 'transactionID')), $dispute->end_to_end_id);
 
-            return $sale === null ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $sale];
+            return $sale === null || $sale === [] ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $sale];
         });
 
-        $this->fetch($dispute, DossierSource::UNICOPAG_REGISTER, $refresh, function () use ($accountId) {
+        $this->fetch($dispute, DossierSource::UNICOPAG_REGISTER, $again, function () use ($accountId) {
             if (! $this->unicopag->registerConfigured() || $accountId === '') {
                 return [SourceStatus::NOT_CONFIGURED, null];
             }
 
             $register = $this->unicopag->register($accountId);
 
-            return $register === null ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $register];
+            return $register === null || $register === [] ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $register];
         });
 
-        $this->fetch($dispute, DossierSource::KYC_STATUS, $refresh, function () use ($accountId) {
+        $this->fetch($dispute, DossierSource::KYC_STATUS, $again, function () use ($accountId) {
             if (! $this->kyc->isConfigured() || $accountId === '') {
                 return [SourceStatus::NOT_CONFIGURED, null];
             }
@@ -127,10 +170,16 @@ class BuildDossierAction
         $dispute->unsetRelation('sources');
         $dispute->load('sources');
 
-        // O GET /dispute de um MED não traz o valor: a transação traz.
+        // O GET /dispute de um MED não traz o valor nem a alegação: a transação e a
+        // recuperação de fundos trazem.
         $value = data_get($dispute->sourcePayload(DossierSource::WOOVI_TRANSACTION), 'value');
         if ($dispute->value === null && is_numeric($value)) {
             $dispute->value = (int) round((float) $value);
+        }
+
+        $situation = data_get($dispute->sourcePayload(DossierSource::WOOVI_FUNDS_RECOVERY), 'situationType');
+        if (blank($dispute->situation_type) && is_string($situation) && $situation !== '') {
+            $dispute->situation_type = $situation;
         }
 
         if ($dispute->sourcePayload(DossierSource::WOOVI_TRANSACTION) !== null) {
@@ -142,15 +191,11 @@ class BuildDossierAction
             }
         }
 
-        if (($sale = $dispute->sourcePayload(DossierSource::UNICOPAG_SALE)) !== null) {
-            $this->platformDocuments->handle($dispute, (array) ($sale['documents'] ?? []));
-        }
-
         $statuses = $dispute->sources->mapWithKeys(fn (DisputeSource $s): array => [$s->source->value => $s->status->value]);
 
         $dispute->fill([
             'dossier_status' => match ($statuses[DossierSource::WOOVI_TRANSACTION->value] ?? null) {
-                SourceStatus::OK->value => $statuses->contains(SourceStatus::FAILED->value) ? 'partial' : 'ready',
+                SourceStatus::OK->value => $dispute->sources->contains(fn (DisputeSource $s): bool => $s->status === SourceStatus::FAILED || filled($s->error)) ? 'partial' : 'ready',
                 SourceStatus::FAILED->value => 'failed',
                 default => 'partial',
             },
@@ -163,47 +208,67 @@ class BuildDossierAction
             'Dossiê automático: '.$dispute->sources
                 ->map(fn (DisputeSource $s): string => $s->source->label().' - '.mb_strtolower($s->status->label()))
                 ->implode('; ').'.',
-            ['sources' => $statuses->all(), 'refresh' => $refresh],
+            ['sources' => $statuses->all(), 'refresh' => $refresh, 'refresh_sources' => array_map(fn (DossierSource $s) => $s->value, $refreshSources)],
         );
 
-        $this->match->handle($dispute);
+        $match = $this->match->handle($dispute);
+
+        // Documento da plataforma só entra quando a venda conferiu com o Pix: o pedido
+        // errado traria a nota fiscal (e os dados) de outro comprador para a evidência.
+        if (($sale = $dispute->sourcePayload(DossierSource::UNICOPAG_SALE)) !== null
+            && collect((array) ($match['checks'] ?? []))->firstWhere('key', 'sale_amount_matches')['status'] === MatchDossierAction::OK) {
+            if ($this->platformDocuments->handle($dispute, (array) ($sale['documents'] ?? [])) > 0) {
+                $this->match->handle($dispute);
+            }
+        }
 
         return $dispute;
     }
 
     /**
-     * Busca uma fonte e grava o resultado. Devolve o payload quando deu certo.
+     * Busca uma fonte e grava o resultado. Devolve o payload vigente quando ok.
      *
+     * @param  Closure(DossierSource): bool  $again
      * @param  Closure(): array{0: SourceStatus, 1: array<string, mixed>|null}  $fetch
      * @return array<string, mixed>|null
      */
-    private function fetch(Dispute $dispute, DossierSource $source, bool $refresh, Closure $fetch): ?array
+    private function fetch(Dispute $dispute, DossierSource $source, Closure $again, Closure $fetch): ?array
     {
         $row = DisputeSource::query()->firstOrNew(['dispute_id' => $dispute->id, 'source' => $source->value]);
 
-        if ($row->exists && ! $refresh && ! $row->status->shouldRetry()) {
+        if ($row->exists && ! $again($source) && ! $row->status->shouldRetry()) {
             return $row->status === SourceStatus::OK ? (array) $row->payload : null;
         }
 
         try {
             [$status, $payload] = $fetch();
-            $error = null;
         } catch (Throwable $e) {
-            [$status, $payload, $error] = [SourceStatus::FAILED, null, mb_substr($e->getMessage(), 0, 1000)];
+            $error = mb_substr($e->getMessage(), 0, 1000);
 
             $this->events->record(
                 DisputeEventType::DOSSIER_SOURCE_FAILED,
                 $dispute,
                 "{$source->label()}: {$error}",
-                ['source' => $source->value],
+                ['source' => $source->value, 'kept_previous' => $row->exists && $row->status === SourceStatus::OK],
                 level: 'warning',
             );
+
+            // Releitura que falhou não apaga o dado bom: guarda só o erro.
+            if ($row->exists && $row->status === SourceStatus::OK) {
+                $row->forceFill(['error' => $error, 'attempts' => $row->attempts + 1])->save();
+
+                return (array) $row->payload;
+            }
+
+            $row->fill(['status' => SourceStatus::FAILED, 'payload' => null, 'error' => $error, 'attempts' => $row->attempts + 1, 'fetched_at' => now()])->save();
+
+            return null;
         }
 
         $row->fill([
             'status' => $status,
             'payload' => $payload,
-            'error' => $error,
+            'error' => null,
             'attempts' => $row->attempts + 1,
             'fetched_at' => now(),
         ])->save();

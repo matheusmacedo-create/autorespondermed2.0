@@ -64,7 +64,8 @@ class GenerateSaleRecordAction
         $sale = $dispute->sourcePayload(DossierSource::UNICOPAG_SALE);
 
         $payerTaxId = data_get($transaction, 'payer.taxID.taxID');
-        $customer = (array) ($charge['customer'] ?? $transaction['customer'] ?? []);
+        // Cliente da cobrança, não `transaction.customer` (que é o próprio pagador).
+        $customer = (array) ($charge['customer'] ?? []);
 
         return [
             'endToEndId' => $dispute->end_to_end_id,

@@ -3,9 +3,11 @@
 namespace App\Enums;
 
 /**
- * Situação de uma fonte do dossiê. Só `failed` é tentado de novo sozinho:
- * `not_found` é resposta (a fonte não tem o dado) e `not_configured`/`skipped`
- * dependem de configuração ou de outra fonte.
+ * Situação de uma fonte do dossiê. `not_found` é resposta definitiva (a fonte não
+ * tem o dado) e não se repete. `failed`, `skipped` (dependia de outra fonte que
+ * não veio) e `not_configured` são reavaliados a cada montagem - o que dependia
+ * da transação passa a ser buscado quando ela chega, e o que dependia de
+ * configuração, quando ela é feita. Reavaliar sem a dependência não custa chamada.
  */
 enum SourceStatus: string
 {
@@ -38,6 +40,6 @@ enum SourceStatus: string
 
     public function shouldRetry(): bool
     {
-        return $this === self::FAILED;
+        return in_array($this, [self::FAILED, self::SKIPPED, self::NOT_CONFIGURED], true);
     }
 }

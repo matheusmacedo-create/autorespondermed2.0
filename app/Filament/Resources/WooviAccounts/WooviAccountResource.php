@@ -8,6 +8,7 @@ use App\Filament\Resources\WooviAccounts\Pages\ListWooviAccounts;
 use App\Filament\Resources\WooviAccounts\Schemas\WooviAccountForm;
 use App\Filament\Resources\WooviAccounts\Tables\WooviAccountsTable;
 use App\Models\WooviAccount;
+use App\Support\Permissions;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -38,6 +39,27 @@ class WooviAccountResource extends Resource
     public static function table(Table $table): Table
     {
         return WooviAccountsTable::configure($table);
+    }
+
+    public static function canViewAny(): bool
+    {
+        return Permissions::allows(Permissions::VIEW_WOOVI_ACCOUNTS);
+    }
+
+    public static function canCreate(): bool
+    {
+        return Permissions::allows(Permissions::MANAGE_WOOVI_ACCOUNTS);
+    }
+
+    public static function canEdit($record): bool
+    {
+        return Permissions::allows(Permissions::MANAGE_WOOVI_ACCOUNTS);
+    }
+
+    public static function canDelete($record): bool
+    {
+        // Conta com MED não some: desativar ("Ativa" desligado) é o caminho.
+        return false;
     }
 
     public static function getPages(): array

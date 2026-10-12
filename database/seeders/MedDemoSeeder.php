@@ -8,6 +8,7 @@ use App\Models\Dispute;
 use App\Models\DisputeEvidence;
 use App\Models\User;
 use App\Models\WooviAccount;
+use App\Support\Permissions;
 use Illuminate\Database\Seeder;
 
 /**
@@ -21,7 +22,7 @@ class MedDemoSeeder extends Seeder
         User::query()->firstOrCreate(
             ['email' => 'admin@unicopag.test'],
             ['name' => 'Analista MED', 'password' => 'password'],
-        );
+        )->assignRole(Permissions::ROLE_SUPER_ADMIN);
 
         $loja = WooviAccount::factory()->create([
             'name' => 'Loja do José Eletrônicos LTDA',

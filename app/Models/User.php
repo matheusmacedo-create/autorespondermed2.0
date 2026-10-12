@@ -3,17 +3,20 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\Permissions;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, HasRoles, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -49,11 +52,24 @@ class User extends Authenticatable implements FilamentUser
         ];
     }
 
+    protected static function booted(): void
+    {
+        // Primeiro usuário vira Super Admin: sem isso, o `make:filament-user` de um
+        // ambiente novo criaria alguém sem papel nenhum e ninguém entraria no painel.
+        static::created(function (self $user): void {
+            $role = Role::query()->where('name', Permissions::ROLE_SUPER_ADMIN)->first();
+
+            if ($role && ! $role->users()->exists()) {
+                $user->assignRole($role);
+            }
+        });
+    }
+
     /**
-     * Painel só para a operação: usuários são criados por `php artisan make:filament-user`.
+     * Painel só para quem tem papel: usuário sem papel não entra.
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return true;
+        return $this->roles()->exists();
     }
 }

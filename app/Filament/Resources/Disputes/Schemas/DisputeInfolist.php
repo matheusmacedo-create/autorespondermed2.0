@@ -140,7 +140,7 @@ class DisputeInfolist
                             ->schema([
                                 RepeatableEntry::make('events')
                                     ->hiddenLabel()
-                                    ->state(fn (Dispute $record) => $record->events()->latest('occurred_at')->latest('id')->limit(50)->get())
+                                    ->state(fn (Dispute $record) => $record->events()->with('user')->latest('occurred_at')->latest('id')->limit(50)->get())
                                     ->schema([
                                         TextEntry::make('event')
                                             ->hiddenLabel()
@@ -153,7 +153,11 @@ class DisputeInfolist
                                             }),
                                         TextEntry::make('message')
                                             ->hiddenLabel()
-                                            ->helperText(fn ($record): string => $record->occurred_at->timezone('America/Sao_Paulo')->format('d/m/Y H:i').' · '.$record->source),
+                                            ->helperText(fn ($record): string => collect([
+                                                $record->occurred_at->timezone('America/Sao_Paulo')->format('d/m/Y H:i'),
+                                                $record->source,
+                                                $record->user?->name,
+                                            ])->filter()->implode(' · ')),
                                     ]),
                             ]),
                     ]),

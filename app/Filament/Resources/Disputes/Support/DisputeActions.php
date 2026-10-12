@@ -12,6 +12,7 @@ use App\Enums\EvidenceKind;
 use App\Models\Dispute;
 use App\Services\DisputeEventRecorder;
 use App\Services\SellerNotifier;
+use App\Support\Permissions;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
@@ -38,7 +39,8 @@ class DisputeActions
             ->modalHeading('Enviar a defesa à Woovi')
             ->modalDescription(fn (ViewRecord $livewire): string => self::sendDescription($livewire->getRecord()))
             ->modalSubmitActionLabel('Enviar agora')
-            ->visible(fn (ViewRecord $livewire): bool => $livewire->getRecord()->status->canSendToWoovi())
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::SEND_DISPUTES)
+                && $livewire->getRecord()->status->canSendToWoovi())
             ->action(function (ViewRecord $livewire, SendEvidenceToWooviAction $send): void {
                 try {
                     $sent = $send->handle($livewire->getRecord(), auth()->id());
@@ -61,7 +63,8 @@ class DisputeActions
             ->color('gray')
             ->modalHeading('Pedir complemento ao seller')
             ->modalDescription('O caso volta para "Aguardando seller", o link reabre e o seller recebe esta mensagem por e-mail.')
-            ->visible(fn (ViewRecord $livewire): bool => in_array($livewire->getRecord()->status, [DisputeStatus::SELLER_SUBMITTED, DisputeStatus::PENDING_SELLER], true))
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && in_array($livewire->getRecord()->status, [DisputeStatus::SELLER_SUBMITTED, DisputeStatus::PENDING_SELLER], true))
             ->schema([
                 Textarea::make('message')
                     ->label('O que falta')
@@ -83,6 +86,7 @@ class DisputeActions
             ->label('Parecer da ÚnicoPag')
             ->icon('heroicon-o-pencil-square')
             ->modalDescription('Vai na carta de defesa enviada à Woovi, depois do relato do seller.')
+            ->visible(fn (): bool => Permissions::allows(Permissions::REVIEW_DISPUTES))
             ->fillForm(fn (ViewRecord $livewire): array => ['analyst_notes' => $livewire->getRecord()->analyst_notes])
             ->schema([
                 Textarea::make('analyst_notes')->label('Parecer')->rows(6)->maxLength(5000),
@@ -98,7 +102,8 @@ class DisputeActions
         return Action::make('attachEvidence')
             ->label('Anexar evidência')
             ->icon('heroicon-o-paper-clip')
-            ->visible(fn (ViewRecord $livewire): bool => $livewire->getRecord()->status->canSendToWoovi())
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && $livewire->getRecord()->status->canSendToWoovi())
             ->schema([
                 Select::make('kind')->label('Tipo')->options(EvidenceKind::sellerOptions())->required(),
                 Textarea::make('description')->label('O que o documento mostra')->required()->maxLength(450)->rows(2),
@@ -133,7 +138,8 @@ class DisputeActions
             ->label('Reenviar aviso ao seller')
             ->icon('heroicon-o-envelope')
             ->requiresConfirmation()
-            ->visible(fn (ViewRecord $livewire): bool => $livewire->getRecord()->status === DisputeStatus::PENDING_SELLER)
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && $livewire->getRecord()->status === DisputeStatus::PENDING_SELLER)
             ->action(function (ViewRecord $livewire, SellerNotifier $notifier): void {
                 $dispute = $livewire->getRecord();
                 $sent = $notifier->disputeOpened($dispute, $dispute->complement_request);
@@ -149,6 +155,7 @@ class DisputeActions
         return Action::make('syncWithWoovi')
             ->label('Reler na Woovi')
             ->icon('heroicon-o-arrow-path')
+            ->visible(fn (): bool => Permissions::allows(Permissions::REVIEW_DISPUTES))
             ->action(function (ViewRecord $livewire, SyncDisputeAction $sync): void {
                 try {
                     $sync->handle($livewire->getRecord());

@@ -6,6 +6,7 @@ use App\Actions\Med\RegisterWooviWebhooksAction;
 use App\Actions\Med\SyncAccountDisputesAction;
 use App\Enums\WooviAccountSource;
 use App\Models\WooviAccount;
+use App\Support\Permissions;
 use App\Support\TaxId;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -71,7 +72,7 @@ class WooviAccountsTable
                                 ->title("{$result['seen']} disputa(s) na Woovi, {$result['created']} nova(s)")
                                 ->send();
                         }),
-                ]),
+                ])->visible(fn (): bool => Permissions::allows(Permissions::MANAGE_WOOVI_ACCOUNTS)),
             ]);
     }
 }

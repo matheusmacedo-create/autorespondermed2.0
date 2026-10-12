@@ -21,13 +21,24 @@ revisa na fila e o sistema envia a defesa à Woovi.
 
 ```bash
 composer setup                                   # instala, cria .env, migra, builda o front
-php artisan make:filament-user                   # usuário do painel
+php artisan make:filament-user                   # usuário do painel (o primeiro vira Super Admin)
 php artisan db:seed --class=MedDemoSeeder        # opcional: dados de demo (admin@unicopag.test / password)
 composer run dev                                 # http://localhost:8000/admin
 ```
 
 Produção precisa de: `APP_URL` público (a Woovi chama o webhook e, no modo `url`, baixa as evidências),
 worker de fila (`php artisan queue:work`) e o cron `* * * * * php artisan schedule:run`.
+
+## Papéis
+
+| Papel | Ver MEDs | Analisar (complemento, parecer, anexo) | Enviar à Woovi | Ver contas | Gerenciar contas e AppIDs | Usuários |
+|---|---|---|---|---|---|---|
+| Super Admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Admin | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| Analista | ✓ | ✓ | ✓ | ✓ | | |
+| Visualizador | ✓ | | | ✓ | | |
+
+Usuário sem papel não entra no painel. Papéis são atribuídos em **Sistema > Usuários**.
 
 ## Ligando uma conta Woovi
 

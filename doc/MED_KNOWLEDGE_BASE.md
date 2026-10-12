@@ -125,7 +125,16 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 - Ação escondida também é recusada no servidor (o Filament não monta ação invisível) - há teste que forja a
   chamada direto no Livewire. Download de evidência pelo painel exige `view disputes`.
 
-## 6. Contratos com o unico-api
+## 6. Produção (Forge) `[decisão]`
+
+- Mesmo servidor e esquema do KYC: Forge, PHP 8.4, deploy sem downtime, schema próprio no RDS. Roteiro em
+  `doc/DEPLOY_FORGE.md`.
+- O agendador grava um batimento (`med:scheduler:heartbeat`) a cada minuto; o `med:diagnostico` falha se
+  ele não existir ou estiver parado há mais de 5 min. Existe por causa do KYC 8.4: o cron nunca foi criado
+  e as rotinas agendadas ficaram semanas sem rodar sem ninguém perceber.
+- A `APP_KEY` de produção não pode ser trocada: os AppIDs das contas Woovi são criptografados com ela.
+
+## 7. Contratos com o unico-api
 
 Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
@@ -138,5 +147,6 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-12** - produção no Forge e `med:diagnostico` (seção 6).
 - **2026-10-12** - papéis e permissões (seção 5).
 - **2026-10-12** - criação: contrato da Woovi conferido na doc pública e no OpenAPI, primeira versão do fluxo.

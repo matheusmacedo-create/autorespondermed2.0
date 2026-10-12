@@ -16,6 +16,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   Sistema > Usuários). Demo local: `php artisan db:seed --class=MedDemoSeeder`.
 - Agendados (precisam do cron `schedule:run`): `med:sincronizar` (de hora em hora) e `med:alertar-prazos`.
 - `med:registrar-webhooks` cadastra os eventos `OPENPIX:DISPUTE_*` nas contas Woovi.
+- `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
+  Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 
 ## Estrutura que importa
 - `app/Actions/Med/` - as regras do fluxo (ingestão, defesa do seller, complemento, carta de defesa, envio à Woovi, sincronização).

@@ -26,8 +26,9 @@ php artisan db:seed --class=MedDemoSeeder        # opcional: dados de demo (admi
 composer run dev                                 # http://localhost:8000/admin
 ```
 
-Produção precisa de: `APP_URL` público (a Woovi chama o webhook e, no modo `url`, baixa as evidências),
-worker de fila (`php artisan queue:work`) e o cron `* * * * * php artisan schedule:run`.
+Produção roda no Laravel Forge, como o KYC: passo a passo em [`doc/DEPLOY_FORGE.md`](doc/DEPLOY_FORGE.md)
+(site com https, worker da fila, cron do agendador, variáveis). Depois de qualquer mudança de ambiente:
+`php artisan med:diagnostico`.
 
 ## Papéis
 
@@ -60,6 +61,7 @@ Depois: **Cadastrar webhooks** na lista (ou `php artisan med:registrar-webhooks 
 | `med:sincronizar [--conta=] [--dias=30]` | busca MEDs novos e relê os abertos na Woovi | de hora em hora |
 | `med:alertar-prazos` | lembra o seller (uma vez) e manda ao Discord os prazos vencendo | 9h, 14h e 18h |
 | `med:registrar-webhooks [--conta=]` | cadastra os eventos `OPENPIX:DISPUTE_*` na Woovi | manual |
+| `med:diagnostico` | confere banco, fila, cron, e-mail, chaves e contas; sai com erro se algo obrigatório falha | manual |
 
 ## Testes
 

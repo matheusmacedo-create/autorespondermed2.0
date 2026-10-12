@@ -32,6 +32,13 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - Toda ação nova do painel precisa de `->visible(fn () => Permissions::allows(...))`: o Filament recusa no
   servidor chamar ação escondida (`PermissionsTest::test_forced_call_to_a_hidden_action_does_nothing`).
 
+## WhatsApp (Kapso)
+- Mesmo número oficial e mesma chave do KYC, webhook e segredo próprios (`/api/webhooks/kapso`). A Kapso manda
+  ao webhook TODA mensagem do número: o MED só age em resposta a template dele (citado ou do mesmo telefone,
+  ainda esperando). Não relaxe esse filtro - responderia conversas do KYC e do atendimento.
+- Template primeiro, link só na resposta (janela de 24h da Meta). Pedido para parar bloqueia o telefone para
+  sempre no WhatsApp; o e-mail continua.
+
 ## Armadilhas
 - O webhook de disputa da Woovi **não diz de qual conta veio**: a conta sai da `webhook_key` na URL. Não
   troque por uma URL única.

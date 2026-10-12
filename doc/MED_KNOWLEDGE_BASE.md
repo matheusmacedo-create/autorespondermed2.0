@@ -125,7 +125,31 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 - Ação escondida também é recusada no servidor (o Filament não monta ação invisível) - há teste que forja a
   chamada direto no Livewire. Download de evidência pelo painel exige `view disputes`.
 
-## 6. Produção (Forge) `[decisão]`
+## 6. WhatsApp oficial (Kapso) `[código]`
+
+- **Mesmo número e mesma chave de projeto do KYC** (+55 21 92367-4860, KB do KYC 8.23), com webhook e segredo
+  próprios. Uma conta Kapso aceita mais de um webhook por número; os dois sistemas recebem tudo.
+- **Dois passos**, pela regra da Meta: a empresa só inicia conversa com template aprovado, e texto livre (o
+  link) só chega a quem falou com a ÚnicoPag nas últimas 24h. Sai o template (`MED_WHATSAPP_TEMPLATE`,
+  `{{1}}` = primeiro nome); a resposta do seller chega pelo webhook e o link vai como texto. Se o seller
+  respondeu um template do MED nas últimas 24h, o link vai direto.
+- **O MED só responde ao que é dele** (`whatsapp_messages`): resposta que cita um template do MED, ou, sem
+  citação, templates do mesmo telefone ainda esperando resposta (7 dias). Resposta que cita mensagem de outro
+  sistema é ignorada. `[decisão]`
+- **Qualquer resposta que não seja pedido para parar libera o link** - inclusive "não": o caso é sobre o
+  dinheiro do seller e o link é a única ação útil. Pedido para parar ("pare", "sair da lista", "não quero
+  receber"...) bloqueia o telefone no WhatsApp para sempre (`whatsapp_opt_outs`); o e-mail continua. `[decisão]`
+- Falha da Kapso não segura o e-mail (e vice-versa); fica na linha do tempo com o motivo traduzido.
+
+**Template sugerido para submeter à Meta** (categoria Utilidade, `pt_BR`, um botão de resposta rápida - um
+botão de "agora não" seria lido como "pode mandar"):
+
+> Olá, {{1}}! Aqui é da ÚnicoPag. Um Pix recebido na sua conta foi contestado pelo pagador e precisamos da sua
+> defesa para tentar manter o valor. Posso te enviar os detalhes e o link agora?
+>
+> [Pode enviar]
+
+## 7. Produção (Forge) `[decisão]`
 
 - Mesmo servidor e esquema do KYC: Forge, PHP 8.4, deploy sem downtime, schema próprio no RDS. Roteiro em
   `doc/DEPLOY_FORGE.md`.
@@ -134,7 +158,7 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
   e as rotinas agendadas ficaram semanas sem rodar sem ninguém perceber.
 - A `APP_KEY` de produção não pode ser trocada: os AppIDs das contas Woovi são criptografados com ela.
 
-## 7. Contratos com o unico-api
+## 8. Contratos com o unico-api
 
 Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
@@ -147,6 +171,7 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
-- **2026-10-12** - produção no Forge e `med:diagnostico` (seção 6).
+- **2026-10-12** - WhatsApp oficial pela Kapso (seção 6).
+- **2026-10-12** - produção no Forge e `med:diagnostico` (seção 7).
 - **2026-10-12** - papéis e permissões (seção 5).
 - **2026-10-12** - criação: contrato da Woovi conferido na doc pública e no OpenAPI, primeira versão do fluxo.

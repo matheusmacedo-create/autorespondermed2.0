@@ -72,6 +72,20 @@ return [
         'key' => env('API_KEY'),
     ],
 
+    // Kapso - WhatsApp oficial da ÚnicoPag (o mesmo número e a mesma chave de projeto do
+    // KYC). Sem api_key + phone_number_id o aviso por WhatsApp fica desligado e o seller
+    // é avisado só por e-mail.
+    'kapso' => [
+        'api_key' => env('KAPSO_API_KEY'),
+        'base_url' => env('KAPSO_BASE_URL', 'https://api.kapso.ai'),
+        'graph_version' => env('KAPSO_GRAPH_VERSION', 'v24.0'),
+        'phone_number_id' => env('KAPSO_PHONE_NUMBER_ID'),
+        // Segredo do webhook deste sistema (POST /api/webhooks/kapso). Próprio do MED:
+        // o KYC tem o dele, e cada um confere só o seu.
+        'webhook_secret' => env('KAPSO_WEBHOOK_SECRET'),
+        'timeout' => (int) env('KAPSO_TIMEOUT', 15),
+    ],
+
     'discord' => [
         // Canal da operação de MED: caso novo, defesa enviada pelo seller, prazo
         // vencendo, falha de envio à Woovi. Vazio = só log.

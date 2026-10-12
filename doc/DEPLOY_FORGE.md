@@ -51,6 +51,12 @@ API_KEY=<segredo compartilhado com o unico-api>
 DISCORD_MED_WEBHOOK_URL=<canal da operação de MED>
 DISCORD_MED_ROLE_ID=<cargo a mencionar>
 
+# WhatsApp: mesma KAPSO_API_KEY e KAPSO_PHONE_NUMBER_ID do site do KYC; segredo próprio.
+KAPSO_API_KEY=<a mesma do KYC>
+KAPSO_PHONE_NUMBER_ID=<o mesmo do KYC>
+KAPSO_WEBHOOK_SECRET=<segredo novo, só do MED>
+MED_WHATSAPP_TEMPLATE=<nome do template aprovado na Meta>
+
 WOOVI_BASE_URL=https://api.woovi.com
 WOOVI_WEBHOOK_VERIFY_SIGNATURE=true
 WOOVI_EVIDENCE_MODE=file_id
@@ -99,7 +105,8 @@ novo depois de qualquer mudança de ambiente.
 1. Cadastrar as contas Woovi (painel ou `PUT /api/woovi-accounts` pelo unico-api).
 2. `php artisan med:registrar-webhooks` - cadastra os eventos `OPENPIX:DISPUTE_*` de cada conta.
 3. `php artisan med:sincronizar --dias=90` - traz os MEDs que já existiam.
-4. `php artisan med:diagnostico` de novo.
+4. Com a Kapso configurada: `php artisan med:registrar-webhook-kapso` (uma vez).
+5. `php artisan med:diagnostico` de novo.
 
 ## Evidências
 

@@ -52,6 +52,7 @@ class DiagnosticsCommand extends Command
 
         $mailer = (string) config('mail.default');
         $this->check('E-mail ao seller', in_array($mailer, ['log', 'array'], true) ? ($production ? 'fail' : 'warn') : 'ok', "mailer {$mailer}, de ".config('mail.from.address'));
+        $this->checkWhatsApp();
         $this->check('Discord (alertas)', filled(config('services.discord.med_webhook_url')) ? 'ok' : 'warn', filled(config('services.discord.med_webhook_url')) ? 'configurado' : 'vazio: alertas só no log');
 
         $this->checkStorage();
@@ -134,6 +135,26 @@ class DiagnosticsCommand extends Command
 
         $late = $at->diffInMinutes(now()) > 5;
         $this->check('Agendador (cron schedule:run)', $late ? 'fail' : 'ok', 'último batimento '.$at->timezone('America/Sao_Paulo')->format('d/m H:i').($late ? ' - parado' : ''));
+    }
+
+    private function checkWhatsApp(): void
+    {
+        if (blank(config('services.kapso.api_key')) || blank(config('services.kapso.phone_number_id'))) {
+            $this->check('WhatsApp (Kapso)', 'warn', 'desligado: sem KAPSO_API_KEY/KAPSO_PHONE_NUMBER_ID, aviso só por e-mail');
+
+            return;
+        }
+
+        $missing = array_keys(array_filter([
+            'MED_WHATSAPP_TEMPLATE' => blank(config('med.whatsapp.template')),
+            'KAPSO_WEBHOOK_SECRET' => blank(config('services.kapso.webhook_secret')),
+        ]));
+
+        $this->check(
+            'WhatsApp (Kapso)',
+            $missing === [] ? 'ok' : 'warn',
+            $missing === [] ? 'template '.config('med.whatsapp.template').' (rode med:registrar-webhook-kapso uma vez)' : 'falta '.implode(' e ', $missing).': sem isso o link não vai na resposta',
+        );
     }
 
     private function checkStorage(): void

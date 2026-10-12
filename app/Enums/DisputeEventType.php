@@ -23,6 +23,9 @@ enum DisputeEventType: string
     case DEADLINE_WARNING = 'deadline_warning';
     case CLOSED = 'closed';
     case WEBHOOK_REJECTED = 'webhook_rejected';
+    case WHATSAPP_REPLIED = 'whatsapp_replied';
+    case WHATSAPP_OPT_OUT = 'whatsapp_opt_out';
+    case WHATSAPP_DELIVERY_FAILED = 'whatsapp_delivery_failed';
 
     public function label(): string
     {
@@ -43,6 +46,9 @@ enum DisputeEventType: string
             self::DEADLINE_WARNING => 'Prazo vencendo',
             self::CLOSED => 'Caso encerrado',
             self::WEBHOOK_REJECTED => 'Webhook recusado',
+            self::WHATSAPP_REPLIED => 'Seller respondeu no WhatsApp',
+            self::WHATSAPP_OPT_OUT => 'Seller pediu para parar o WhatsApp',
+            self::WHATSAPP_DELIVERY_FAILED => 'WhatsApp não entregue',
         };
     }
 

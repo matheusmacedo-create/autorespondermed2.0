@@ -16,6 +16,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   Sistema > Usuários). Demo local: `php artisan db:seed --class=MedDemoSeeder`.
 - Agendados (precisam do cron `schedule:run`): `med:sincronizar` (de hora em hora) e `med:alertar-prazos`.
 - `med:registrar-webhooks` cadastra os eventos `OPENPIX:DISPUTE_*` nas contas Woovi.
+- `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
+  Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 
 ## Estrutura que importa
 - `app/Actions/Med/` - as regras do fluxo (ingestão, defesa do seller, complemento, carta de defesa, envio à Woovi, sincronização).
@@ -29,6 +31,13 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   Analista, Visualizador); a migração `2026_10_13_000002` cria tudo em todo deploy. Usuário sem papel não entra.
 - Toda ação nova do painel precisa de `->visible(fn () => Permissions::allows(...))`: o Filament recusa no
   servidor chamar ação escondida (`PermissionsTest::test_forced_call_to_a_hidden_action_does_nothing`).
+
+## WhatsApp (Kapso)
+- Mesmo número oficial e mesma chave do KYC, webhook e segredo próprios (`/api/webhooks/kapso`). A Kapso manda
+  ao webhook TODA mensagem do número: o MED só age em resposta a template dele (citado ou do mesmo telefone,
+  ainda esperando). Não relaxe esse filtro - responderia conversas do KYC e do atendimento.
+- Template primeiro, link só na resposta (janela de 24h da Meta). Pedido para parar bloqueia o telefone para
+  sempre no WhatsApp; o e-mail continua.
 
 ## Armadilhas
 - O webhook de disputa da Woovi **não diz de qual conta veio**: a conta sai da `webhook_key` na URL. Não

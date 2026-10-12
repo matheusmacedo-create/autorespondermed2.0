@@ -100,6 +100,11 @@ class Dispute extends Model
         return $this->hasMany(DisputeEvent::class);
     }
 
+    public function whatsappMessages(): HasMany
+    {
+        return $this->hasMany(WhatsAppMessage::class);
+    }
+
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');

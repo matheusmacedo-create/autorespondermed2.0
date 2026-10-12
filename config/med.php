@@ -40,6 +40,20 @@ return [
     ],
 
     /*
+    | Aviso por WhatsApp (Kapso). A Meta só deixa a empresa iniciar conversa com
+    | template aprovado, e o template não leva link: sai o template, e quando o
+    | seller responde o link vai como texto (mesmo desenho do KYC, KB 8.23 de lá).
+    | Sem template configurado, o WhatsApp fica desligado.
+    */
+    'whatsapp' => [
+        // Nome do template aprovado na Meta. {{1}} = primeiro nome do contato.
+        'template' => env('MED_WHATSAPP_TEMPLATE'),
+        'template_language' => env('MED_WHATSAPP_TEMPLATE_LANGUAGE', 'pt_BR'),
+        // Resposta depois disto não é mais tratada como resposta ao template.
+        'janela_resposta_dias' => (int) env('MED_WHATSAPP_JANELA_RESPOSTA_DIAS', 7),
+    ],
+
+    /*
     | Idioma do painel admin, independente do APP_LOCALE (mesmo racional do KYC).
     */
     'panel_locale' => env('MED_PANEL_LOCALE', 'pt_BR'),

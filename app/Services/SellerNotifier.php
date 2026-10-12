@@ -10,19 +10,30 @@ use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 /**
- * Avisa o seller do MED pelo e-mail de contato da conta Woovi. Cada tentativa
+ * Avisa o seller do MED: e-mail de contato da conta Woovi e, com a Kapso e o
+ * template configurados, WhatsApp oficial ({@see WhatsAppNotifier}). Cada tentativa
  * (enviada ou não) vira evento na linha do tempo: o analista precisa saber se o
  * seller foi avisado antes de cobrar a defesa.
- *
- * WhatsApp (Kapso, como no KYC) entra aqui quando houver template de MED
- * aprovado na Meta - o link não pode ir no template, então segue o mesmo
- * desenho de dois passos do KYC (KB 8.23 de lá).
  */
 class SellerNotifier
 {
-    public function __construct(private readonly DisputeEventRecorder $events) {}
+    public function __construct(
+        private readonly DisputeEventRecorder $events,
+        private readonly WhatsAppNotifier $whatsapp,
+    ) {}
 
+    /**
+     * Devolve true quando o seller foi avisado por pelo menos um canal.
+     */
     public function disputeOpened(Dispute $dispute, ?string $complementRequest = null): bool
+    {
+        // WhatsApp não decide o e-mail nem o contrário: um canal falhar não segura o outro.
+        $byWhatsApp = rescue(fn (): bool => $this->whatsapp->notify($dispute, $complementRequest), false);
+
+        return $this->email($dispute, $complementRequest) || $byWhatsApp;
+    }
+
+    private function email(Dispute $dispute, ?string $complementRequest): bool
     {
         $email = $dispute->wooviAccount->contact_email;
 

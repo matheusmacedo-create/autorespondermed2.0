@@ -1,7 +1,7 @@
 # MED - Base de Conhecimento
 
 > **Documento vivo.** Registra como o responder de MED **é** e o que se sabe do contrato da Woovi.
-> Última atualização: 2026-10-12.
+> Última atualização: 2026-10-12 (papéis e permissões).
 
 Mesma regra do KYC: comportamento e decisão vêm para cá; o que falta fazer vai para o card. Cada fato diz
 como foi apurado - `[doc-woovi]` documentação pública da Woovi, `[openapi]` spec do repo
@@ -113,7 +113,19 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 | Seller avisado por e-mail; WhatsApp (Kapso) depois | o link não pode ir em template da Meta; precisa de template de MED aprovado e do fluxo de dois passos do KYC (KB do KYC 8.23) |
 | Caso que já chega encerrado não cobra defesa | sincronização de histórico não pode disparar e-mail para caso decidido |
 
-## 5. Contratos com o unico-api
+## 5. Papéis e permissões `[código]`
+
+- Seis permissões (`App\Support\Permissions`): ver MEDs, analisar (complemento, parecer, anexo, reler na
+  Woovi), enviar à Woovi, ver contas, gerenciar contas (AppID, webhooks, sincronização) e gerenciar usuários.
+- Papéis: Super Admin (tudo, e passa no `Gate::before`), Admin (sem usuários), Analista (analisa e envia, só
+  vê contas) e Visualizador (só leitura). `[decisão]` - enviar à Woovi ficou com o Analista porque é o
+  trabalho dele; o que é sensível de verdade é o AppID, que fica com Admin.
+- **Ninguém fica trancado no deploy:** a migração que cria os papéis promove a Super Admin todo usuário que
+  já existia (antes dela todos podiam tudo), e o primeiro usuário criado num ambiente novo vira Super Admin.
+- Ação escondida também é recusada no servidor (o Filament não monta ação invisível) - há teste que forja a
+  chamada direto no Livewire. Download de evidência pelo painel exige `view disputes`.
+
+## 6. Contratos com o unico-api
 
 Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
@@ -126,4 +138,5 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-12** - papéis e permissões (seção 5).
 - **2026-10-12** - criação: contrato da Woovi conferido na doc pública e no OpenAPI, primeira versão do fluxo.

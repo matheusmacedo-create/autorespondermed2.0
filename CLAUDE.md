@@ -12,7 +12,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 ## Comandos
 - Setup: `composer setup`. Dev (server + fila + logs + vite): `composer run dev`.
 - Testes: `composer test` (`php artisan test`). PHPUnit, sem Pest. Estilo: `./vendor/bin/pint`.
-- Usuário do painel: `php artisan make:filament-user`. Demo local: `php artisan db:seed --class=MedDemoSeeder`.
+- Usuário do painel: `php artisan make:filament-user` (o primeiro vira Super Admin; os demais ganham papel em
+  Sistema > Usuários). Demo local: `php artisan db:seed --class=MedDemoSeeder`.
 - Agendados (precisam do cron `schedule:run`): `med:sincronizar` (de hora em hora) e `med:alertar-prazos`.
 - `med:registrar-webhooks` cadastra os eventos `OPENPIX:DISPUTE_*` nas contas Woovi.
 
@@ -22,6 +23,12 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - `app/Livewire/Med/SellerDefenseForm.php` - formulário público `/med/{token}`.
 - `app/Filament/Resources/Disputes` (fila e ficha) e `WooviAccounts` (contas e AppIDs).
 - `routes/api.php` - webhook da Woovi (um por conta) e a ponte com o unico-api (X-API-Key).
+
+## Permissões
+- spatie/laravel-permission, como o KYC. Catálogo em `app/Support/Permissions.php` (papéis Super Admin, Admin,
+  Analista, Visualizador); a migração `2026_10_13_000002` cria tudo em todo deploy. Usuário sem papel não entra.
+- Toda ação nova do painel precisa de `->visible(fn () => Permissions::allows(...))`: o Filament recusa no
+  servidor chamar ação escondida (`PermissionsTest::test_forced_call_to_a_hidden_action_does_nothing`).
 
 ## Armadilhas
 - O webhook de disputa da Woovi **não diz de qual conta veio**: a conta sai da `webhook_key` na URL. Não

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\EvidenceDownloadController;
 use App\Livewire\Med\SellerDefenseForm;
+use App\Support\Permissions;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/admin');
@@ -19,5 +20,5 @@ Route::get('/med/evidencias/{evidence}/arquivo', EvidenceDownloadController::cla
 
 // Mesmo arquivo para o analista, pela sessão do painel.
 Route::get('/admin/evidencias/{evidence}/arquivo', EvidenceDownloadController::class)
-    ->middleware(['web', 'auth'])
+    ->middleware(['web', 'auth', 'can:'.Permissions::VIEW_DISPUTES])
     ->name('admin.evidence.download');

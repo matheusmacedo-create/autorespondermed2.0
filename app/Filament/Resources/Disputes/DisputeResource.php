@@ -8,6 +8,7 @@ use App\Filament\Resources\Disputes\Pages\ViewDispute;
 use App\Filament\Resources\Disputes\Schemas\DisputeInfolist;
 use App\Filament\Resources\Disputes\Tables\DisputesTable;
 use App\Models\Dispute;
+use App\Support\Permissions;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -60,6 +61,16 @@ class DisputeResource extends Resource
     public static function getGloballySearchableAttributes(): array
     {
         return ['end_to_end_id', 'payer_name', 'wooviAccount.name', 'wooviAccount.tax_id'];
+    }
+
+    public static function canViewAny(): bool
+    {
+        return Permissions::allows(Permissions::VIEW_DISPUTES);
+    }
+
+    public static function canView($record): bool
+    {
+        return Permissions::allows(Permissions::VIEW_DISPUTES);
     }
 
     public static function canCreate(): bool

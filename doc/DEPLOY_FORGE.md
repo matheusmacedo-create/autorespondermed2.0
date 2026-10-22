@@ -64,8 +64,9 @@ UNICOPAG_API_KEY=<chave de uma integração "med" só de leitura no unico-api>
 UNICOPAG_SALE_ENDPOINT=<rota de venda, quando o unico-api a criar>
 
 WOOVI_BASE_URL=https://api.woovi.com
-# Conta mestre/parceira (a mesma do unico-api): as subcontas entram sozinhas, de hora em hora.
-WOOVI_MASTER_APP_ID=<AppID mestre>
+# Aplicativo da conta mestre/parceira criado só para o MED (escopos PARTNER_COMPANY_GET_LIST e
+# PARTNER_APPLICATION_POST - não reaproveitar a chave do unico-api). Subcontas entram de hora em hora.
+WOOVI_MASTER_APP_ID=<AppID do aplicativo de parceiro do MED>
 WOOVI_WEBHOOK_VERIFY_SIGNATURE=true
 WOOVI_EVIDENCE_MODE=file_id
 MED_PRAZO_RESPOSTA_HORAS=72
@@ -112,7 +113,9 @@ novo depois de qualquer mudança de ambiente.
 
 1. Com `WOOVI_MASTER_APP_ID` definido: `php artisan med:importar-contas` - lista as subcontas pela API de
    parceiro, cria o aplicativo do MED em cada uma, cadastra os webhooks e traz os MEDs dos últimos 90 dias.
-   Depois roda sozinho de hora em hora (cron). Sem a conta mestre: cadastrar as contas no painel ou pelo
+   Depois roda sozinho de hora em hora (cron); duas execuções nunca correm juntas (trava própria).
+   Antes, toda conta ativa já cadastrada precisa ter CPF/CNPJ: sem ele a importação não cria nenhuma conta
+   (avisa no Discord), porque não teria como saber se a subconta já está aqui. Sem a conta mestre: cadastrar as contas no painel ou pelo
    unico-api (`PUT /api/woovi-accounts`) e seguir os passos 2 e 3.
 2. `php artisan med:registrar-webhooks` - cadastra os eventos `OPENPIX:DISPUTE_*` de cada conta.
 3. `php artisan med:sincronizar --dias=90` - traz os MEDs que já existiam.

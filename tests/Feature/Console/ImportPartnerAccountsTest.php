@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -153,7 +154,7 @@ class ImportPartnerAccountsTest extends TestCase
         ]);
 
         $this->artisan('med:importar-contas')
-            ->expectsOutputToContain('Loja do Zé LTDA (65914571000187): Woovi recusou a criação do aplicativo na subconta (HTTP 400): Company not found')
+            ->expectsOutputToContain('Loja do Zé LTDA: Woovi recusou a criação do aplicativo na subconta (HTTP 400): Company not found')
             ->expectsOutputToContain('criadas aqui: 1 · já existiam: 0 · sem empresa ainda: 2 · falhas: 1')
             ->assertFailed();
 
@@ -161,25 +162,97 @@ class ImportPartnerAccountsTest extends TestCase
         $this->assertTrue(WooviAccount::query()->where('tax_id', self::ACADEMIA)->exists());
     }
 
-    public function test_scope_list_refused_by_woovi_falls_back_to_an_application_without_scopes(): void
+    public function test_scope_list_refused_by_woovi_stops_the_run_and_never_creates_a_full_access_key(): void
     {
         $this->fakeWoovi([
-            'api.woovi.test/api/v1/partner/application' => Http::sequence()
-                ->push(['error' => 'Invalid scope: FUNDS_RECOVERY_GET'], 400)
-                ->push(['application' => ['clientId' => 'Client_Id_a', 'clientSecret' => 'Secret_a']], 201)
-                ->push(['application' => ['clientId' => 'Client_Id_b', 'clientSecret' => 'Secret_b']], 201),
+            'api.woovi.test/api/v1/partner/application' => Http::response(['error' => 'Invalid scopes: FUNDS_RECOVERY_GET'], 400),
         ]);
 
         $this->artisan('med:importar-contas')
-            ->expectsOutputToContain('recusou a lista de escopos')
+            ->expectsOutputToContain('Criação de contas interrompida')
+            ->assertFailed();
+
+        $this->assertSame(0, WooviAccount::query()->count());
+        // Parou na primeira recusa: não repete a mesma chamada para cada subconta.
+        $this->assertSame(1, $this->applicationRequests()->count());
+        $this->assertArrayHasKey('scopes', $this->applicationRequests()->first()->data()['application']);
+    }
+
+    public function test_master_without_application_permission_stops_after_the_first_refusal(): void
+    {
+        $this->fakeWoovi([
+            'api.woovi.test/api/v1/partner/application' => Http::response(['error' => 'Missing scope PARTNER_APPLICATION_POST'], 403),
+        ]);
+
+        $this->artisan('med:importar-contas')->assertFailed();
+
+        $this->assertSame(1, $this->applicationRequests()->count());
+        $this->assertSame(0, WooviAccount::query()->count());
+    }
+
+    public function test_active_account_without_tax_id_blocks_creation_so_the_seller_is_never_duplicated(): void
+    {
+        WooviAccount::factory()->create(['name' => 'Cadastrada sem CNPJ', 'tax_id' => null, 'woovi_company_id' => null]);
+        $this->fakeWoovi();
+
+        $this->artisan('med:importar-contas')
+            ->expectsOutputToContain('contas ativas sem CPF/CNPJ (preencha antes de importar): Cadastrada sem CNPJ')
+            ->assertFailed();
+
+        $this->assertSame(1, WooviAccount::query()->count());
+        $this->assertSame(0, $this->applicationRequests()->count());
+    }
+
+    public function test_account_left_without_webhooks_is_wired_again_on_the_next_run(): void
+    {
+        $this->fakeWoovi(['api.woovi.test/api/v1/webhook?*' => Http::response(['error' => 'instável'], 500)]);
+        $this->artisan('med:importar-contas')->assertFailed();
+        $this->assertNull(WooviAccount::query()->where('tax_id', self::LOJA)->sole()->webhooks_registered_at);
+
+        Http::swap(new Factory);
+        $this->fakeWoovi();
+        $this->artisan('med:importar-contas')
+            ->expectsOutputToContain('criadas aqui: 0 · já existiam: 2')
             ->assertSuccessful();
 
-        $requests = $this->applicationRequests()->values();
-        $this->assertSame(3, $requests->count());
-        $this->assertArrayHasKey('scopes', $requests[0]->data()['application']);
-        $this->assertArrayNotHasKey('scopes', $requests[1]->data()['application']);
-        $this->assertArrayHasKey('scopes', $requests[2]->data()['application']);
-        $this->assertSame(base64_encode('Client_Id_a:Secret_a'), WooviAccount::query()->where('tax_id', self::LOJA)->sole()->app_id);
+        $this->assertNotNull(WooviAccount::query()->where('tax_id', self::LOJA)->sole()->webhooks_registered_at);
+        $this->assertSame(0, $this->applicationRequests()->count());
+    }
+
+    public function test_a_second_import_while_one_is_running_does_nothing(): void
+    {
+        $this->fakeWoovi();
+        $lock = Cache::lock('med:importar-contas', 60);
+        $lock->get();
+
+        try {
+            $this->artisan('med:importar-contas')
+                ->expectsOutputToContain('Já há uma importação rodando')
+                ->assertSuccessful();
+        } finally {
+            $lock->release();
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_unico_api_sending_an_imported_cnpj_adopts_the_account_instead_of_duplicating(): void
+    {
+        $this->fakeWoovi();
+        $this->artisan('med:importar-contas')->assertSuccessful();
+        config(['services.api.key' => 'segredo']);
+
+        $this->putJson('/api/woovi-accounts', [
+            'account_id' => '4321',
+            'name' => 'Loja do Zé',
+            'app_id' => 'chave-do-unico-api',
+            'tax_id' => '65.914.571/0001-87',
+        ], ['X-API-Key' => 'segredo'])->assertOk();
+
+        $this->assertSame(2, WooviAccount::query()->count());
+        $loja = WooviAccount::query()->where('tax_id', self::LOJA)->sole();
+        $this->assertSame('4321', $loja->unicopag_account_id);
+        $this->assertSame(WooviAccountSource::UNICO_API, $loja->source);
     }
 
     public function test_master_without_partner_feature_aborts_with_the_woovi_message(): void

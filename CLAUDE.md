@@ -18,7 +18,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - `med:registrar-webhooks` cadastra os eventos `OPENPIX:DISPUTE_*` nas contas Woovi.
 - `med:importar-contas` (de hora em hora, com `WOOVI_MASTER_APP_ID`): lista as subcontas pela API de parceiro
   da Woovi, cria em cada uma um aplicativo só com os escopos do MED e já liga webhooks e MEDs. Conta que já
-  existe nunca ganha chave nova (o `POST /partner/application` não é idempotente).
+  existe nunca ganha chave nova (o `POST /partner/application` não é idempotente); conta ativa sem CPF/CNPJ
+  trava a criação; nunca há aplicativo "sem escopos" (acesso total).
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 

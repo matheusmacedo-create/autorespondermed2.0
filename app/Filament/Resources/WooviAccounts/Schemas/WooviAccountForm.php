@@ -21,6 +21,8 @@ class WooviAccountForm
                         TextInput::make('name')->label('Nome / razão social')->required()->maxLength(255),
                         TextInput::make('tax_id')
                             ->label('CPF/CNPJ')
+                            ->required()
+                            ->helperText('É por ele que a importação automática reconhece a subconta - sem ele a conta seria duplicada.')
                             ->maxLength(20)
                             ->dehydrateStateUsing(fn (?string $state): ?string => $state ? preg_replace('/\D/', '', $state) : null),
                         TextInput::make('unicopag_account_id')

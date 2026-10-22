@@ -37,16 +37,22 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
   (`PUT /api/woovi-accounts`), **importação pela conta mestre** (abaixo) e, no futuro, autorização via
   WooviApp (OAuth). `[código]`
 - **Importação automática pela conta mestre** (`med:importar-contas`, de hora em hora, desde 22/10/2026).
-  São centenas de sellers: cadastrar um a um não escala. Com a credencial da conta mestre/parceira da
-  ÚnicoPag (`WOOVI_MASTER_APP_ID`, a mesma que o unico-api usa) o MED lista as subcontas em
+  São centenas de sellers: cadastrar um a um não escala. Com um aplicativo da conta mestre/parceira da
+  ÚnicoPag criado só para o MED (`WOOVI_MASTER_APP_ID`, escopos `PARTNER_COMPANY_GET_LIST` e
+  `PARTNER_APPLICATION_POST`; **não** reaproveitar a chave do unico-api, que tem acesso total) o MED lista as subcontas em
   `GET /partner/affiliate` (paginado por `skip`/`limit`; `company.taxID` vem como string ou como
   `{taxID, type}`) e os pré-cadastros em `GET /partner/company` (trazem o usuário mestre = contato), e para
   cada CNPJ **sem conta aqui** cria um aplicativo na subconta via `POST /partner/application`
   (`application.type = API`, `scopes` só com o que o MED chama) - o AppID é `base64("clientId:clientSecret")`.
   Conta que já existe, de qualquer origem, **nunca ganha chave nova**: a rota não é idempotente e cada chamada
   deixaria mais uma credencial na subconta do seller; só os campos em branco (contato, id da empresa) são
-  completados. Pré-cadastro sem `company.id` (cadastro não concluído) é pulado. Se a Woovi recusar a lista de
-  escopos (400 citando "scope"), o aplicativo é criado sem escopos (acesso completo, modo legado). Os escopos
+  completados. Pré-cadastro sem `company.id` (cadastro não concluído) é pulado. Travas (revisão de 22/10):
+  conta ativa sem CPF/CNPJ nem id da empresa **impede a criação** (não dá para provar que a subconta não está
+  aqui - seria duplicar o seller: dois casos por MED, dois avisos); 401/403/429 ou 400 de escopo **param a
+  rodada** (é a mesma recusa para todas) com alerta no Discord; **nunca** há aplicativo "sem escopos"; uma
+  importação por vez (`Cache::lock`), e cada CNPJ sob a mesma trava que o `PUT /api/woovi-accounts`, que adota
+  a conta já importada do mesmo CNPJ em vez de criar outra. Conta ativa sem webhook ou nunca sincronizada é
+  religada na rodada seguinte. Os escopos
   vêm do `x-required-scope` do OpenAPI (`api.woovi.com/api/openapi.json`): `DISPUTE_GET`, `DISPUTE_GET_LIST`,
   `DISPUTE_POST`, `FILE_POST`, `WEBHOOK_GET_LIST`, `WEBHOOK_POST`, `TRANSACTION_GET`, `CHARGE_GET`,
   `CHARGE_REFUND_GET_LIST`, `FUNDS_RECOVERY_GET` (o comprovante `/receipt` não exige escopo). As rotas de

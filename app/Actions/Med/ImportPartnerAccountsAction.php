@@ -8,15 +8,21 @@ use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
 use Closure;
 use Generator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 /**
  * Importa as subcontas Woovi dos sellers pela API de parceiro, com a conta mestre
  * da ÚnicoPag: lista as subcontas (afiliadas + pré-cadastros) e, para cada CNPJ
  * que ainda não tem conta aqui, cria na subconta um aplicativo só com os escopos
- * do MED e guarda o AppID. Conta que já existe (de qualquer origem) não ganha
- * chave nova: o aplicativo da Woovi não é idempotente, e cada chamada criaria
- * outra credencial na subconta do seller - só os campos em branco são completados.
+ * do MED e guarda o AppID.
+ *
+ * O POST /partner/application não é idempotente: cada chamada deixa mais uma
+ * credencial na subconta do seller. Por isso só cria quando consegue provar que
+ * a empresa não existe aqui (conta ativa sem CPF/CNPJ trava a criação), conta
+ * existente nunca ganha chave nova (só os campos em branco são completados), e
+ * cada CNPJ é tratado sob trava (o PUT do unico-api respeita a mesma).
  */
 class ImportPartnerAccountsAction
 {
@@ -26,102 +32,134 @@ class ImportPartnerAccountsAction
 
     /**
      * @param  Closure(string, string): void|null  $report  recebe (info|warn|error, mensagem)
-     * @return array{found: int, created: int, existing: int, skipped: int, failed: int, created_ids: array<int, int>}
+     * @return array{found: int, created: int, existing: int, skipped: int, failed: int, created_ids: array<int, int>, aborted: ?string}
      */
     public function handle(?Closure $report = null): array
     {
         $report ??= fn (string $level, string $message) => null;
+        $scopes = $this->scopes();
         $client = WooviClient::master();
 
         [$companies, $skipped] = $this->companies($client, $report);
 
-        $summary = ['found' => count($companies), 'created' => 0, 'existing' => 0, 'skipped' => $skipped, 'failed' => 0, 'created_ids' => []];
+        $summary = ['found' => count($companies), 'created' => 0, 'existing' => 0, 'skipped' => $skipped, 'failed' => 0, 'created_ids' => [], 'aborted' => null];
+
+        // Conta sem CPF/CNPJ nem id da empresa não dá para casar com a subconta: criar
+        // chave nova seria duplicar a conta do seller (dois casos por MED, dois avisos).
+        $unidentified = WooviAccount::query()->where('is_active', true)->whereNull('tax_id')->whereNull('woovi_company_id')->pluck('name');
+
+        if ($unidentified->isNotEmpty()) {
+            $summary['aborted'] = 'contas ativas sem CPF/CNPJ (preencha antes de importar): '.$unidentified->take(20)->implode(', ')
+                .($unidentified->count() > 20 ? ' e mais '.($unidentified->count() - 20) : '');
+        }
 
         foreach ($companies as $taxId => $company) {
-            $query = WooviAccount::query()->where('tax_id', $taxId);
+            $outcome = Cache::lock(self::lockKey($taxId), 60)->block(10, function () use ($client, $company, $taxId, $scopes, $summary): array {
+                if ($existing = $this->existing($taxId, $company['woovi_company_id'])) {
+                    $this->fillBlanks($existing, $company);
 
-            if ($company['woovi_company_id'] !== null) {
-                $query->orWhere('woovi_company_id', $company['woovi_company_id']);
-            }
-
-            if ($existing = $query->first()) {
-                $existing->fill(array_filter([
-                    'woovi_company_id' => $existing->woovi_company_id ?: $company['woovi_company_id'],
-                    'contact_name' => $existing->contact_name ?: $company['contact_name'],
-                    'contact_email' => $existing->contact_email ?: $company['contact_email'],
-                    'contact_phone' => $existing->contact_phone ?: $company['contact_phone'],
-                ]));
-
-                if ($existing->isDirty()) {
-                    $existing->save();
+                    return ['existing'];
                 }
 
-                $summary['existing']++;
+                if ($summary['aborted'] !== null) {
+                    return ['skip'];
+                }
 
-                continue;
-            }
+                try {
+                    $application = $client->createPartnerApplication($taxId, (string) config('services.woovi.partner_application_name', 'UnicoPag MED'), $scopes);
+                } catch (WooviException $e) {
+                    // Mesma recusa para todas as subcontas: credencial, feature, escopo
+                    // ou limite. Parar aqui evita centenas de chamadas iguais por hora.
+                    if (in_array($e->status, [401, 403, 429], true) || ($e->status === 400 && str_contains(strtolower((string) $e->body), 'scope'))) {
+                        return ['abort', $e->getMessage()];
+                    }
 
-            try {
-                $application = $this->createApplication($client, $taxId, $report);
-            } catch (WooviException $e) {
-                $summary['failed']++;
-                $report('error', "{$company['name']} ({$taxId}): {$e->getMessage()}");
-                Log::warning('MED: importação da subconta Woovi falhou.', ['tax_id' => $taxId, 'error' => $e->getMessage()]);
+                    return ['failed', $e->getMessage()];
+                }
 
-                continue;
-            }
+                $clientId = (string) ($application['clientId'] ?? '');
+                $secret = (string) ($application['clientSecret'] ?? '');
 
-            $clientId = (string) ($application['clientId'] ?? '');
-            $secret = (string) ($application['clientSecret'] ?? '');
+                if ($clientId === '' || $secret === '') {
+                    return ['failed', 'a Woovi criou o aplicativo sem clientId/clientSecret.'];
+                }
 
-            if ($clientId === '' || $secret === '') {
-                $summary['failed']++;
-                $report('error', "{$company['name']} ({$taxId}): a Woovi criou o aplicativo sem clientId/clientSecret.");
+                $account = WooviAccount::query()->create([
+                    'name' => $company['name'],
+                    'tax_id' => $taxId,
+                    'woovi_company_id' => $company['woovi_company_id'],
+                    'app_id' => base64_encode($clientId.':'.$secret),
+                    'source' => WooviAccountSource::PARTNER,
+                    'contact_name' => $company['contact_name'],
+                    'contact_email' => $company['contact_email'],
+                    'contact_phone' => $company['contact_phone'],
+                    'is_active' => true,
+                ]);
 
-                continue;
-            }
+                return ['created', $account->id];
+            });
 
-            $account = WooviAccount::query()->create([
-                'name' => $company['name'],
-                'tax_id' => $taxId,
-                'woovi_company_id' => $company['woovi_company_id'],
-                'app_id' => base64_encode($clientId.':'.$secret),
-                'source' => WooviAccountSource::PARTNER,
-                'contact_name' => $company['contact_name'],
-                'contact_email' => $company['contact_email'],
-                'contact_phone' => $company['contact_phone'],
-                'is_active' => true,
-            ]);
-
-            $summary['created']++;
-            $summary['created_ids'][] = $account->id;
-            $report('info', "{$company['name']} ({$taxId}): conta criada, com aplicativo \"".config('services.woovi.partner_application_name').'" na subconta.');
+            match ($outcome[0]) {
+                'existing' => $summary['existing']++,
+                'created' => (function () use (&$summary, $outcome, $company, $report): void {
+                    $summary['created']++;
+                    $summary['created_ids'][] = $outcome[1];
+                    $report('info', "{$company['name']}: conta criada, com aplicativo \"".config('services.woovi.partner_application_name').'" na subconta.');
+                })(),
+                'failed' => (function () use (&$summary, $outcome, $company, $report): void {
+                    $summary['failed']++;
+                    $report('error', "{$company['name']}: {$outcome[1]}");
+                    Log::warning('MED: importação da subconta Woovi falhou.', ['account' => $company['name'], 'error' => $outcome[1]]);
+                })(),
+                'abort' => $summary['aborted'] = $outcome[1],
+                default => null,
+            };
         }
 
         return $summary;
     }
 
-    /**
-     * Cria com os escopos do MED; se a Woovi recusar a lista (400 citando escopo),
-     * cria sem escopos - acesso completo, como a chave que o unico-api já tem.
-     *
-     * @return array<string, mixed>
-     */
-    private function createApplication(WooviClient $client, string $taxId, Closure $report): array
+    public static function lockKey(string $taxId): string
     {
-        $name = (string) config('services.woovi.partner_application_name', 'UnicoPag MED');
+        return 'med:woovi-account:'.preg_replace('/\D/', '', $taxId);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scopes(): array
+    {
         $scopes = array_values((array) config('services.woovi.partner_application_scopes', []));
 
-        try {
-            return $client->createPartnerApplication($taxId, $name, $scopes);
-        } catch (WooviException $e) {
-            if ($scopes === [] || $e->status !== 400 || ! str_contains(strtolower((string) $e->body), 'scope')) {
-                throw $e;
-            }
+        if ($scopes === [] || collect($scopes)->contains(fn ($scope): bool => ! is_string($scope) || ! preg_match('/^[A-Z][A-Z_]+$/', $scope))) {
+            throw new RuntimeException('WOOVI_PARTNER_APPLICATION_SCOPES inválida: liste os escopos separados por vírgula (ex.: DISPUTE_GET,DISPUTE_POST).');
+        }
 
-            $report('warn', "{$taxId}: a Woovi recusou a lista de escopos ({$e->getMessage()}); criando sem escopos.");
+        return $scopes;
+    }
 
-            return $client->createPartnerApplication($taxId, $name);
+    private function existing(string $taxId, ?string $companyId): ?WooviAccount
+    {
+        return WooviAccount::query()
+            ->where('tax_id', $taxId)
+            ->when($companyId !== null, fn ($query) => $query->orWhere('woovi_company_id', $companyId))
+            ->first();
+    }
+
+    /**
+     * @param  array{woovi_company_id: ?string, contact_name: ?string, contact_email: ?string, contact_phone: ?string}  $company
+     */
+    private function fillBlanks(WooviAccount $account, array $company): void
+    {
+        $account->fill(array_filter([
+            'woovi_company_id' => $account->woovi_company_id ?: $company['woovi_company_id'],
+            'contact_name' => $account->contact_name ?: $company['contact_name'],
+            'contact_email' => $account->contact_email ?: $company['contact_email'],
+            'contact_phone' => $account->contact_phone ?: $company['contact_phone'],
+        ]));
+
+        if ($account->isDirty()) {
+            $account->save();
         }
     }
 

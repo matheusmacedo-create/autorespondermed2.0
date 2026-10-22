@@ -41,17 +41,20 @@ return [
         'base_url' => env('WOOVI_BASE_URL', 'https://api.woovi.com'),
         'timeout' => (int) env('WOOVI_TIMEOUT', 20),
 
-        // Conta mestre/parceira da ÚnicoPag (a mesma credencial que o unico-api usa
-        // para criar as subcontas). Com ela o `med:importar-contas` lista as subcontas
-        // (GET /partner/affiliate e /partner/company) e cria em cada uma um aplicativo
-        // só com os escopos do MED (POST /partner/application). Vazia = importação
-        // desligada: as contas entram à mão ou pelo unico-api.
+        // AppID de um aplicativo da conta mestre/parceira da ÚnicoPag criado SÓ para o
+        // MED, com os escopos PARTNER_COMPANY_GET_LIST e PARTNER_APPLICATION_POST. Não
+        // reaproveitar a chave do unico-api (acesso total). Com ele o
+        // `med:importar-contas` lista as subcontas (GET /partner/affiliate e
+        // /partner/company) e cria em cada uma um aplicativo só com os escopos do MED
+        // (POST /partner/application). Vazio = importação desligada.
         'master_app_id' => env('WOOVI_MASTER_APP_ID'),
         // Nome do aplicativo criado em cada subconta (aparece na lista de apps dela).
         'partner_application_name' => env('WOOVI_PARTNER_APPLICATION_NAME', 'UnicoPag MED'),
-        // Escopos desse aplicativo: só o que o MED chama. Vazio cria sem escopos
-        // (acesso completo, o modo legado da Woovi).
-        'partner_application_scopes' => array_values(array_filter(array_map('trim', explode(',', (string) env('WOOVI_PARTNER_APPLICATION_SCOPES', 'DISPUTE_GET,DISPUTE_GET_LIST,DISPUTE_POST,FILE_POST,WEBHOOK_GET_LIST,WEBHOOK_POST,TRANSACTION_GET,CHARGE_GET,CHARGE_REFUND_GET_LIST,FUNDS_RECOVERY_GET'))))),
+        // Escopos desse aplicativo: só o que o MED chama (x-required-scope do OpenAPI).
+        // Vazio = esta lista padrão. Nunca há modo "sem escopos" (acesso completo).
+        'partner_application_scopes' => filled(env('WOOVI_PARTNER_APPLICATION_SCOPES'))
+            ? array_values(array_filter(array_map('trim', explode(',', (string) env('WOOVI_PARTNER_APPLICATION_SCOPES')))))
+            : ['DISPUTE_GET', 'DISPUTE_GET_LIST', 'DISPUTE_POST', 'FILE_POST', 'WEBHOOK_GET_LIST', 'WEBHOOK_POST', 'TRANSACTION_GET', 'CHARGE_GET', 'CHARGE_REFUND_GET_LIST', 'FUNDS_RECOVERY_GET'],
 
         // Como a evidência chega à Woovi em POST /api/v1/dispute/{id}/evidence:
         // - file_id: sobe o arquivo antes em POST /api/v1/files (purpose

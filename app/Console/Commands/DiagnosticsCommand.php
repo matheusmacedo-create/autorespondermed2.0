@@ -49,6 +49,13 @@ class DiagnosticsCommand extends Command
             config('services.woovi.webhook.verify_signature') ? 'conferida' : 'DESLIGADA',
         );
         $this->check('Woovi base URL', 'ok', (string) config('services.woovi.base_url'));
+        $this->check(
+            'Conta mestre Woovi (importação)',
+            filled(config('services.woovi.master_app_id')) ? 'ok' : 'warn',
+            filled(config('services.woovi.master_app_id'))
+                ? 'definida: subcontas importadas de hora em hora (med:importar-contas)'
+                : 'vazia (WOOVI_MASTER_APP_ID): contas só à mão ou pelo unico-api',
+        );
 
         $mailer = (string) config('mail.default');
         $this->check('E-mail ao seller', in_array($mailer, ['log', 'array'], true) ? ($production ? 'fail' : 'warn') : 'ok', "mailer {$mailer}, de ".config('mail.from.address'));

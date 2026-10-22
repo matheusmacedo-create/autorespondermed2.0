@@ -33,8 +33,26 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
   dela em `acquirer_recipient_data` `[kyc]` (KB do KYC 11.4 e 11.8). O MED cai na conta do seller, e só o
   AppID daquela conta lê a disputa e envia evidência. Por isso `woovi_accounts` guarda um AppID por conta,
   criptografado com a `APP_KEY` `[código]`.
-- **Três origens de AppID** (`WooviAccountSource`): cadastro manual no painel, envio pelo unico-api
-  (`PUT /api/woovi-accounts`) e, no futuro, autorização via WooviApp (OAuth). `[código]`
+- **Quatro origens de AppID** (`WooviAccountSource`): cadastro manual no painel, envio pelo unico-api
+  (`PUT /api/woovi-accounts`), **importação pela conta mestre** (abaixo) e, no futuro, autorização via
+  WooviApp (OAuth). `[código]`
+- **Importação automática pela conta mestre** (`med:importar-contas`, de hora em hora, desde 22/10/2026).
+  São centenas de sellers: cadastrar um a um não escala. Com a credencial da conta mestre/parceira da
+  ÚnicoPag (`WOOVI_MASTER_APP_ID`, a mesma que o unico-api usa) o MED lista as subcontas em
+  `GET /partner/affiliate` (paginado por `skip`/`limit`; `company.taxID` vem como string ou como
+  `{taxID, type}`) e os pré-cadastros em `GET /partner/company` (trazem o usuário mestre = contato), e para
+  cada CNPJ **sem conta aqui** cria um aplicativo na subconta via `POST /partner/application`
+  (`application.type = API`, `scopes` só com o que o MED chama) - o AppID é `base64("clientId:clientSecret")`.
+  Conta que já existe, de qualquer origem, **nunca ganha chave nova**: a rota não é idempotente e cada chamada
+  deixaria mais uma credencial na subconta do seller; só os campos em branco (contato, id da empresa) são
+  completados. Pré-cadastro sem `company.id` (cadastro não concluído) é pulado. Se a Woovi recusar a lista de
+  escopos (400 citando "scope"), o aplicativo é criado sem escopos (acesso completo, modo legado). Os escopos
+  vêm do `x-required-scope` do OpenAPI (`api.woovi.com/api/openapi.json`): `DISPUTE_GET`, `DISPUTE_GET_LIST`,
+  `DISPUTE_POST`, `FILE_POST`, `WEBHOOK_GET_LIST`, `WEBHOOK_POST`, `TRANSACTION_GET`, `CHARGE_GET`,
+  `CHARGE_REFUND_GET_LIST`, `FUNDS_RECOVERY_GET` (o comprovante `/receipt` não exige escopo). As rotas de
+  parceiro exigem `PARTNER_COMPANY_GET_LIST` e `PARTNER_APPLICATION_POST` na conta mestre e a feature de
+  parceiro ativada pelo suporte da Woovi. `[openapi]` **Em aberto:** se as subcontas criadas pelo unico-api via
+  `/account-register` (BaaS) aparecem em `/partner/affiliate` - confirmar na primeira execução real.
 
 ## 2. O contrato da Woovi (conferido em 12/10/2026)
 
@@ -323,6 +341,8 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-22** - importação automática das subcontas pela conta mestre (`med:importar-contas`, API de
+  parceiro: `/partner/affiliate`, `/partner/company`, `/partner/application`); escopos conferidos no OpenAPI.
 - **2026-10-12** - segunda revisão do dossiê: lista branca da alegação, descarte sob trava com reconferência,
   KYC sem vínculo bloqueia o automático, partial reenfileirado a cada 6h.
 - **2026-10-12** - dossiê automático, conferência e envio automático (seção 8); contrato da rota de venda

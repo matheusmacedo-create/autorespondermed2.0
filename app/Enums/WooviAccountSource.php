@@ -14,6 +14,9 @@ enum WooviAccountSource: string
     case UNICO_API = 'unico_api';
     // Autorizado pelo seller via WooviApp (OAuth da loja de apps da Woovi).
     case WOOVI_APP = 'woovi_app';
+    // Criado pelo próprio MED na subconta, pela API de parceiro com a conta mestre
+    // da ÚnicoPag (med:importar-contas).
+    case PARTNER = 'partner';
 
     public function label(): string
     {
@@ -21,6 +24,7 @@ enum WooviAccountSource: string
             self::MANUAL => 'Manual',
             self::UNICO_API => 'unico-api',
             self::WOOVI_APP => 'WooviApp',
+            self::PARTNER => 'Parceria Woovi',
         };
     }
 }

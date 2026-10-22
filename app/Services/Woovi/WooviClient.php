@@ -16,11 +16,27 @@ use Illuminate\Support\Facades\Http;
  */
 class WooviClient
 {
-    public function __construct(private readonly WooviAccount $account) {}
+    public function __construct(private readonly string $appId) {}
 
     public static function for(WooviAccount $account): self
     {
-        return new self($account);
+        return new self((string) $account->app_id);
+    }
+
+    /**
+     * Cliente da conta mestre/parceira da ÚnicoPag (WOOVI_MASTER_APP_ID). Só para as
+     * rotas de parceiro: listar as subcontas e criar aplicativo nelas. Disputa,
+     * transação e evidência são sempre pelo AppID da subconta.
+     */
+    public static function master(): self
+    {
+        $appId = (string) config('services.woovi.master_app_id');
+
+        if ($appId === '') {
+            throw new WooviException('WOOVI_MASTER_APP_ID vazio: sem a conta mestre o MED não lista as subcontas.');
+        }
+
+        return new self($appId);
     }
 
     /**
@@ -221,6 +237,68 @@ class WooviClient
     }
 
     /**
+     * GET /api/v1/partner/affiliate - subcontas administradas pela conta mestre
+     * (escopo PARTNER_COMPANY_GET_LIST). Paginação por skip/limit.
+     *
+     * @return array{affiliates: array<int, array<string, mixed>>, hasNextPage: bool}
+     */
+    public function listAffiliates(int $skip = 0, int $limit = 100): array
+    {
+        $response = $this->send(
+            fn (PendingRequest $http) => $http->get('/api/v1/partner/affiliate', ['skip' => $skip, 'limit' => $limit]),
+            'a listagem das subcontas (parceiro)',
+        );
+
+        return [
+            'affiliates' => array_values(array_filter((array) ($response->json('affiliates') ?? []), 'is_array')),
+            'hasNextPage' => (bool) $response->json('pageInfo.hasNextPage', false),
+        ];
+    }
+
+    /**
+     * GET /api/v1/partner/company - pré-cadastros feitos pela conta mestre (escopo
+     * PARTNER_COMPANY_GET_LIST). Traz o usuário mestre de cada empresa (contato).
+     *
+     * @return array{preRegistrations: array<int, array<string, mixed>>, hasNextPage: bool}
+     */
+    public function listPreRegistrations(int $skip = 0, int $limit = 100): array
+    {
+        $response = $this->send(
+            fn (PendingRequest $http) => $http->get('/api/v1/partner/company', ['skip' => $skip, 'limit' => $limit]),
+            'a listagem dos pré-cadastros (parceiro)',
+        );
+
+        return [
+            'preRegistrations' => array_values(array_filter((array) ($response->json('preRegistrations') ?? []), 'is_array')),
+            'hasNextPage' => (bool) $response->json('pageInfo.hasNextPage', false),
+        ];
+    }
+
+    /**
+     * POST /api/v1/partner/application - cria um aplicativo (API) na subconta do
+     * CNPJ (escopo PARTNER_APPLICATION_POST). Devolve clientId e clientSecret; o
+     * AppID da subconta é base64("clientId:clientSecret"). NÃO é idempotente: cada
+     * chamada cria outra chave na subconta.
+     *
+     * @param  array<int, string>  $scopes  vazio = sem escopos (acesso completo, modo legado)
+     * @return array<string, mixed>
+     */
+    public function createPartnerApplication(string $taxId, string $name, array $scopes = []): array
+    {
+        $digits = (string) preg_replace('/\D/', '', $taxId);
+
+        $response = $this->send(
+            fn (PendingRequest $http) => $http->post('/api/v1/partner/application', [
+                'application' => array_filter(['name' => $name, 'type' => 'API', 'scopes' => $scopes ?: null]),
+                'taxID' => ['taxID' => $digits, 'type' => strlen($digits) === 11 ? 'BR:CPF' : 'BR:CNPJ'],
+            ]),
+            'a criação do aplicativo na subconta',
+        );
+
+        return (array) ($response->json('application') ?? []);
+    }
+
+    /**
      * @param  callable(PendingRequest): Response  $call
      */
     private function send(callable $call, string $action): Response
@@ -241,7 +319,7 @@ class WooviClient
     private function http(): PendingRequest
     {
         return Http::baseUrl(rtrim((string) config('services.woovi.base_url'), '/'))
-            ->withHeaders(['Authorization' => (string) $this->account->app_id])
+            ->withHeaders(['Authorization' => $this->appId])
             ->acceptJson()
             ->timeout((int) config('services.woovi.timeout', 20));
     }

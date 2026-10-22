@@ -64,6 +64,8 @@ UNICOPAG_API_KEY=<chave de uma integração "med" só de leitura no unico-api>
 UNICOPAG_SALE_ENDPOINT=<rota de venda, quando o unico-api a criar>
 
 WOOVI_BASE_URL=https://api.woovi.com
+# Conta mestre/parceira (a mesma do unico-api): as subcontas entram sozinhas, de hora em hora.
+WOOVI_MASTER_APP_ID=<AppID mestre>
 WOOVI_WEBHOOK_VERIFY_SIGNATURE=true
 WOOVI_EVIDENCE_MODE=file_id
 MED_PRAZO_RESPOSTA_HORAS=72
@@ -108,7 +110,10 @@ novo depois de qualquer mudança de ambiente.
 
 ## 8. Ligar as contas
 
-1. Cadastrar as contas Woovi (painel ou `PUT /api/woovi-accounts` pelo unico-api).
+1. Com `WOOVI_MASTER_APP_ID` definido: `php artisan med:importar-contas` - lista as subcontas pela API de
+   parceiro, cria o aplicativo do MED em cada uma, cadastra os webhooks e traz os MEDs dos últimos 90 dias.
+   Depois roda sozinho de hora em hora (cron). Sem a conta mestre: cadastrar as contas no painel ou pelo
+   unico-api (`PUT /api/woovi-accounts`) e seguir os passos 2 e 3.
 2. `php artisan med:registrar-webhooks` - cadastra os eventos `OPENPIX:DISPUTE_*` de cada conta.
 3. `php artisan med:sincronizar --dias=90` - traz os MEDs que já existiam.
 4. Com a Kapso configurada: `php artisan med:registrar-webhook-kapso` (uma vez).

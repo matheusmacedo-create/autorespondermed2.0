@@ -3,6 +3,7 @@
 namespace App\Actions\Med;
 
 use App\Enums\DisputeEventType;
+use App\Enums\DisputeStatus;
 use App\Enums\DossierSource;
 use App\Enums\EvidenceKind;
 use App\Enums\SourceStatus;
@@ -10,6 +11,7 @@ use App\Models\Dispute;
 use App\Models\DisputeSource;
 use App\Services\DisputeEventRecorder;
 use App\Services\Kyc\KycClient;
+use App\Services\SellerNotifier;
 use App\Services\Unicopag\UnicopagClient;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
@@ -41,6 +43,7 @@ class BuildDossierAction
         private readonly ImportPlatformDocumentsAction $platformDocuments,
         private readonly MatchDossierAction $match,
         private readonly DisputeEventRecorder $events,
+        private readonly SellerNotifier $notifier,
     ) {}
 
     /**
@@ -133,7 +136,9 @@ class BuildDossierAction
         });
 
         $this->fetch($dispute, DossierSource::UNICOPAG_SALE, $again, function () use ($dispute, $accountId, $transaction, $correlationId) {
-            if (! $this->unicopag->saleConfigured() || $accountId === '') {
+            // Sem account_id também: na conta mestre a venda é que diz de qual lojista é
+            // o caso (o unico-api casa pelo correlationID da cobrança).
+            if (! $this->unicopag->saleConfigured()) {
                 return [SourceStatus::NOT_CONFIGURED, null];
             }
 
@@ -148,6 +153,10 @@ class BuildDossierAction
             return $sale === null || $sale === [] ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $sale];
         });
 
+        // Lojista da venda: vale para o cadastro, o KYC e o aviso.
+        $merchantChanged = $this->rememberMerchant($dispute);
+        $accountId = $dispute->platformAccountId();
+
         $this->fetch($dispute, DossierSource::UNICOPAG_REGISTER, $again, function () use ($accountId) {
             if (! $this->unicopag->registerConfigured() || $accountId === '') {
                 return [SourceStatus::NOT_CONFIGURED, null];
@@ -158,9 +167,12 @@ class BuildDossierAction
             return $register === null || $register === [] ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $register];
         });
 
-        $this->fetch($dispute, DossierSource::KYC_STATUS, $again, function () use ($accountId) {
+        $this->fetch($dispute, DossierSource::KYC_STATUS, $again, function () use ($accountId, $dispute) {
             if (! $this->kyc->isConfigured()) {
-                return [SourceStatus::NOT_CONFIGURED, null];
+                // A venda pode trazer o status do KYC do lojista (lido na plataforma).
+                $fromSale = data_get($dispute->merchant, 'kyc_status');
+
+                return is_string($fromSale) && $fromSale !== '' ? [SourceStatus::OK, ['status' => strtolower($fromSale), 'via' => 'unico-api']] : [SourceStatus::NOT_CONFIGURED, null];
             }
 
             // KYC ligado e conta sem vínculo com a plataforma: não conferido, que é
@@ -229,7 +241,62 @@ class BuildDossierAction
             }
         }
 
+        // Lojista identificado agora e ninguém avisado ainda (conta mestre sem
+        // contato): o aviso sai para o lojista da venda.
+        if ($merchantChanged && $dispute->seller_notified_at === null && $dispute->status === DisputeStatus::PENDING_SELLER) {
+            rescue(fn () => $this->notifier->disputeOpened($dispute->refresh()), report: true);
+        }
+
         return $dispute;
+    }
+
+    /**
+     * Guarda o lojista que a venda informa (bloco `seller` + `account_id`). Devolve
+     * true quando ele mudou nesta montagem.
+     */
+    private function rememberMerchant(Dispute $dispute): bool
+    {
+        $sale = $dispute->unsetRelation('sources')->load('sources')->sourcePayload(DossierSource::UNICOPAG_SALE);
+
+        if ($sale === null) {
+            return false;
+        }
+
+        $seller = (array) ($sale['seller'] ?? []);
+        $merchant = array_filter([
+            'name' => $this->string($seller['name'] ?? null),
+            'trade_name' => $this->string($seller['trade_name'] ?? null),
+            'tax_id' => $this->string(preg_replace('/\D/', '', (string) ($seller['document'] ?? ''))),
+            'contact_name' => $this->string($seller['contact_name'] ?? null),
+            'email' => filter_var($seller['email'] ?? null, FILTER_VALIDATE_EMAIL) ?: null,
+            'phone' => $this->string($seller['phone'] ?? null),
+            'kyc_status' => $this->string($seller['kyc_status'] ?? null),
+        ]);
+        $accountId = $this->string(isset($sale['account_id']) ? (string) $sale['account_id'] : null);
+
+        if ($merchant === [] && $accountId === null) {
+            return false;
+        }
+
+        $dispute->forceFill([
+            'merchant' => $merchant ?: $dispute->merchant,
+            'merchant_account_id' => $accountId ?? $dispute->merchant_account_id,
+        ]);
+
+        if (! $dispute->isDirty(['merchant', 'merchant_account_id'])) {
+            return false;
+        }
+
+        $dispute->save();
+
+        $this->events->record(
+            DisputeEventType::MERCHANT_IDENTIFIED,
+            $dispute,
+            'Lojista identificado pela venda na plataforma: '.($merchant['trade_name'] ?? $merchant['name'] ?? "conta {$accountId}").'.',
+            ['account_id' => $accountId],
+        );
+
+        return true;
     }
 
     /**

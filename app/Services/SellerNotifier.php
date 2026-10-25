@@ -35,13 +35,13 @@ class SellerNotifier
 
     private function email(Dispute $dispute, ?string $complementRequest): bool
     {
-        $email = $dispute->wooviAccount->contact_email;
+        $email = $dispute->seller()['email'];
 
         if (! $email) {
             $this->events->record(
                 DisputeEventType::SELLER_NOTIFICATION_FAILED,
                 $dispute,
-                'Conta sem e-mail de contato: avise o seller pelo link da ficha.',
+                'Lojista sem e-mail de contato (nem na venda nem na conta): avise pelo link da ficha.',
                 level: 'warning',
             );
 
@@ -76,7 +76,7 @@ class SellerNotifier
 
     public function disputeClosed(Dispute $dispute): void
     {
-        $email = $dispute->wooviAccount->contact_email;
+        $email = $dispute->seller()['email'];
 
         if (! $email) {
             return;

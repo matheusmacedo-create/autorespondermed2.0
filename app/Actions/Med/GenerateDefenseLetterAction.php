@@ -77,9 +77,9 @@ class GenerateDefenseLetterAction
             'analystNotes' => $dispute->analyst_notes,
             'sellerContactName' => $dispute->seller_contact_name,
             'sellerSubmittedAt' => $dispute->seller_submitted_at?->timezone('America/Sao_Paulo')->format('d/m/Y H:i'),
-            'accountName' => $dispute->wooviAccount->name,
-            'accountTaxId' => TaxId::format($dispute->wooviAccount->tax_id),
-            'tradeName' => data_get($register, 'register.trade_name'),
+            'accountName' => $dispute->seller()['name'],
+            'accountTaxId' => TaxId::format($dispute->seller()['tax_id']),
+            'tradeName' => data_get($dispute->merchant, 'trade_name') ?: data_get($register, 'register.trade_name'),
             'sellerDetails' => array_filter([
                 'Pedido informado pelo recebedor' => data_get($dispute->seller_details, 'order_reference'),
                 'Rastreio informado pelo recebedor' => data_get($dispute->seller_details, 'tracking_code'),

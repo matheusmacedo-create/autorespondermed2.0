@@ -51,6 +51,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - Documento gerado só muda pelo `StoreSystemEvidence` (troca o correlationID quando o conteúdo muda; o que foi
   enviado nunca muda). Só item ok da conferência vai para a carta. PII do pagador: payload criptografado,
   PDFs mascarados (`App\Support\Mask`), nada no link público nem no Discord.
+- Conta mestre: todos os MEDs caem numa conta Woovi só. O lojista do caso vem da venda (`seller` + `account_id`,
+  guardado em `disputes.merchant`/`merchant_account_id`); aviso, carta, link e IA usam `Dispute::seller()`, nunca
+  o contato da conta direto. Cadastro e KYC usam `Dispute::platformAccountId()`.
 
 ## Defesa com IA
 - "Gerar defesa com IA" na ficha (job `GenerateAiDefense`, aviso no sininho): `GenerateAiDefenseAction` monta o caso

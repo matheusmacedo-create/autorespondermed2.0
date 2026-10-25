@@ -305,6 +305,16 @@ Discord. Retenção/anonimização depois do encerramento: decisão do jurídico
 Rota que **não existe hoje** (nenhuma rota de leitura de transação/pedido é conhecida, KB do KYC 8.20/11.13).
 Sem ela o dossiê funciona só com a Woovi. Sugestão:
 
+**Atualizado em 25/10/2026** (MEDs caem na conta mestre): a busca precisa funcionar **só com o
+`correlation_id`** - o MED não sabe de qual lojista é o caso - e a resposta traz o lojista em `seller`
+(`name`, `trade_name`, `document`, `contact_name`, `email`, `phone`, `kyc_status`) e a `account_id` dele. O
+MED guarda isso no caso (`disputes.merchant`, `merchant_account_id`), usa a `account_id` para o cadastro e o
+KYC, e avisa o lojista pelo contato da venda (`Dispute::seller()`, com o da conta Woovi como reserva). Lojista
+identificado numa montagem e ninguém avisado ainda = aviso na hora, uma vez. Sem KYC configurado, o
+`seller.kyc_status` da venda vale como status do KYC. Endpoint recomendado:
+`UNICOPAG_SALE_ENDPOINT=/api/med/sales/lookup?correlation_id={correlation_id}&end_to_end_id={end_to_end_id}&txid={txid}`.
+O `charge.correlationID` (UUID) existe em toda cobrança paga da conta mestre conferida; sem subconta nem split.
+
 ```
 GET /api/med/sales/lookup?account_id=&correlation_id=&txid=&end_to_end_id=
 X-API-Key: <integração "med", só leitura>     (não reaproveitar a chave "kyc", que escreve)
@@ -371,6 +381,7 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-25** - lojista do caso pela venda (`seller` + `account_id`), busca sem conta, aviso ao lojista da venda (8.1).
 - **2026-10-25** - defesa com IA (seção 10); MEDs caem na conta mestre; `WOOVI_PARTNER_IMPORT`.
 - **2026-10-22** - importação automática das subcontas pela conta mestre (`med:importar-contas`, API de
   parceiro: `/partner/affiliate`, `/partner/company`, `/partner/application`); escopos conferidos no OpenAPI.

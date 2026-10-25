@@ -217,10 +217,15 @@ class DisputeInfolist
                     ->schema([
                         Section::make('Seller')
                             ->schema([
-                                TextEntry::make('wooviAccount.name')->label('Conta'),
-                                TextEntry::make('wooviAccount.tax_id')->label('CPF/CNPJ')->formatStateUsing(fn (?string $state): ?string => TaxId::format($state))->placeholder('—'),
-                                TextEntry::make('wooviAccount.contact_email')->label('E-mail')->copyable()->placeholder('sem e-mail'),
-                                TextEntry::make('wooviAccount.contact_phone')->label('Telefone')->copyable()->placeholder('—'),
+                                TextEntry::make('seller_name')
+                                    ->label('Lojista')
+                                    ->state(fn (Dispute $record): ?string => data_get($record->merchant, 'trade_name') ?: $record->seller()['name'])
+                                    ->helperText(fn (Dispute $record): string => $record->merchant
+                                        ? 'Pela venda na plataforma'.($record->merchant_account_id ? " (conta {$record->merchant_account_id})" : '').' · conta Woovi: '.$record->wooviAccount->name
+                                        : 'Conta Woovi (sem venda localizada na plataforma)'),
+                                TextEntry::make('seller_tax_id')->label('CPF/CNPJ')->state(fn (Dispute $record): ?string => TaxId::format($record->seller()['tax_id']))->placeholder('—'),
+                                TextEntry::make('seller_email')->label('E-mail')->state(fn (Dispute $record): ?string => $record->seller()['email'])->copyable()->placeholder('sem e-mail'),
+                                TextEntry::make('seller_phone')->label('Telefone')->state(fn (Dispute $record): ?string => $record->seller()['phone'])->copyable()->placeholder('—'),
                                 TextEntry::make('seller_link')
                                     ->label('Link da defesa')
                                     ->state(fn (Dispute $record): string => $record->sellerLink())

@@ -90,7 +90,7 @@ class GenerateAiDefenseAction
                 'motivo_informado' => $dispute->dispute_reason,
                 'alegacao_bacen' => $dispute->situation_type,
                 'aberto_em' => $dispute->opened_at?->timezone('America/Sao_Paulo')->format('d/m/Y H:i'),
-                'recebedor' => $dispute->wooviAccount?->name,
+                'recebedor' => data_get($dispute->merchant, 'trade_name') ?: $dispute->seller()['name'],
                 'pedido_informado_pelo_recebedor' => data_get($dispute->seller_details, 'order_reference'),
                 'rastreio_informado_pelo_recebedor' => data_get($dispute->seller_details, 'tracking_code'),
             ]),

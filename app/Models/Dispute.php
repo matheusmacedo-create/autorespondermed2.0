@@ -49,6 +49,8 @@ class Dispute extends Model
         'ai_defense',
         'ai_defense_generated_at',
         'defense_text',
+        'merchant_account_id',
+        'merchant',
         'complement_request',
         'reviewed_by',
         'evidence_sent_at',
@@ -82,6 +84,7 @@ class Dispute extends Model
             'dossier_match' => 'array',
             'seller_details' => 'array',
             'ai_defense' => 'array',
+            'merchant' => 'array',
             'ai_defense_generated_at' => 'datetime',
             'raw' => 'array',
         ];
@@ -97,6 +100,35 @@ class Dispute extends Model
     public static function newToken(): string
     {
         return Str::random(48);
+    }
+
+    /**
+     * Conta do lojista na plataforma (accounts.id do unico-api): a da venda do caso
+     * e, sem ela, a da conta Woovi (subconta de um seller só).
+     */
+    public function platformAccountId(): string
+    {
+        return (string) ($this->merchant_account_id ?: $this->wooviAccount?->unicopag_account_id);
+    }
+
+    /**
+     * Lojista que recebeu o Pix e é avisado do MED: o da venda (unico-api) e, sem
+     * ela, o contato da conta Woovi.
+     *
+     * @return array{name: ?string, tax_id: ?string, contact_name: ?string, email: ?string, phone: ?string}
+     */
+    public function seller(): array
+    {
+        $merchant = (array) ($this->merchant ?? []);
+        $account = $this->wooviAccount;
+
+        return [
+            'name' => ($merchant['name'] ?? null) ?: $account?->name,
+            'tax_id' => ($merchant['tax_id'] ?? null) ?: $account?->tax_id,
+            'contact_name' => ($merchant['contact_name'] ?? null) ?: $account?->contact_name,
+            'email' => ($merchant['email'] ?? null) ?: $account?->contact_email,
+            'phone' => ($merchant['phone'] ?? null) ?: $account?->contact_phone,
+        ];
     }
 
     public function wooviAccount(): BelongsTo

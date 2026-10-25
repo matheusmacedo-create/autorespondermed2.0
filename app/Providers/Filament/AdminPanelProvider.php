@@ -25,6 +25,9 @@ class AdminPanelProvider extends PanelProvider
         return $panel
             ->default()
             ->id('admin')
+            // Aviso do rascunho da defesa com IA (job em fila).
+            ->databaseNotifications()
+            ->databaseNotificationsPolling('30s')
             ->path('admin')
             ->login()
             ->brandName('ÚnicoPag MED')

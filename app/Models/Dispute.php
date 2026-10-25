@@ -46,6 +46,9 @@ class Dispute extends Model
         'seller_submitted_at',
         'seller_submission_metadata',
         'analyst_notes',
+        'ai_defense',
+        'ai_defense_generated_at',
+        'defense_text',
         'complement_request',
         'reviewed_by',
         'evidence_sent_at',
@@ -78,6 +81,8 @@ class Dispute extends Model
             'dossier_built_at' => 'datetime',
             'dossier_match' => 'array',
             'seller_details' => 'array',
+            'ai_defense' => 'array',
+            'ai_defense_generated_at' => 'datetime',
             'raw' => 'array',
         ];
     }

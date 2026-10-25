@@ -48,6 +48,9 @@ return [
         // /partner/company) e cria em cada uma um aplicativo só com os escopos do MED
         // (POST /partner/application). Vazio = importação desligada.
         'master_app_id' => env('WOOVI_MASTER_APP_ID'),
+        // Desliga só a importação das subcontas (conta sem a função de parceiro da
+        // Woovi responde 403); a chave mestre continua valendo para o resto.
+        'partner_import' => (bool) env('WOOVI_PARTNER_IMPORT', true),
         // Nome do aplicativo criado em cada subconta (aparece na lista de apps dela).
         'partner_application_name' => env('WOOVI_PARTNER_APPLICATION_NAME', 'UnicoPag MED'),
         // Escopos desse aplicativo: só o que o MED chama (x-required-scope do OpenAPI).
@@ -123,6 +126,16 @@ return [
         // o KYC tem o dele, e cada um confere só o seu.
         'webhook_secret' => env('KAPSO_WEBHOOK_SECRET'),
         'timeout' => (int) env('KAPSO_TIMEOUT', 15),
+    ],
+
+    // Anthropic (Claude): redige o rascunho da defesa do MED a partir do dossiê
+    // conferido. Sem chave, o botão "Gerar defesa com IA" fica escondido.
+    'anthropic' => [
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('MED_IA_MODEL', 'claude-opus-5-5'),
+        // low | medium | high | xhigh | max - redação jurídica pede profundidade.
+        'effort' => env('MED_IA_EFFORT', 'high'),
+        'timeout' => (float) env('MED_IA_TIMEOUT', 240),
     ],
 
     'discord' => [

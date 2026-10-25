@@ -11,8 +11,10 @@ use App\Actions\Med\SyncDisputeAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
 use App\Enums\EvidenceKind;
+use App\Jobs\GenerateAiDefense;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
+use App\Services\Defense\DefenseWriter;
 use App\Services\DisputeEventRecorder;
 use App\Services\SellerNotifier;
 use App\Support\DisputeLock;
@@ -21,6 +23,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Http\UploadedFile;
@@ -82,6 +85,50 @@ class DisputeActions
             ->action(function (array $data, ViewRecord $livewire, RequestComplementAction $request): void {
                 $request->handle($livewire->getRecord(), (string) $data['message']);
                 Notification::make()->success()->title('Complemento pedido ao seller')->send();
+            });
+    }
+
+    public static function generateAiDefense(): Action
+    {
+        return Action::make('generateAiDefense')
+            ->label(fn (ViewRecord $livewire): string => $livewire->getRecord()->ai_defense ? 'Refazer defesa com IA' : 'Gerar defesa com IA')
+            ->icon('heroicon-o-sparkles')
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading('Defesa com IA')
+            ->modalDescription('O Claude redige um rascunho a partir dos fatos conferidos, do relato do seller e, quando a Woovi informa, do relato de quem contestou. Sai só o que a conferência marcou ok, sem dado do pagador. Nada vai à Woovi: você revisa o texto e envia. Leva até alguns minutos; o aviso chega no sininho.')
+            ->modalSubmitActionLabel('Gerar rascunho')
+            ->visible(fn (ViewRecord $livewire, DefenseWriter $writer): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && $writer->isConfigured()
+                && $livewire->getRecord()->status->canSendToWoovi())
+            ->action(function (ViewRecord $livewire): void {
+                GenerateAiDefense::dispatch($livewire->getRecord()->id, auth()->id());
+                Notification::make()->info()->title('A IA está redigindo a defesa')->body('Você recebe o aviso no sininho quando o rascunho ficar pronto.')->send();
+            });
+    }
+
+    public static function editDefenseText(): Action
+    {
+        return Action::make('editDefenseText')
+            ->label('Texto da defesa')
+            ->icon('heroicon-o-document-text')
+            ->modalDescription('Vai na carta de defesa enviada à Woovi, como "Defesa da ÚnicoPag". Parte do rascunho da IA; o que você editar aqui é o que vale.')
+            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+                && $livewire->getRecord()->status->canSendToWoovi())
+            ->fillForm(fn (ViewRecord $livewire): array => ['defense_text' => $livewire->getRecord()->defense_text])
+            ->schema([
+                Textarea::make('defense_text')->label('Defesa')->rows(14)->maxLength(8000),
+                Toggle::make('use_ai_draft')
+                    ->label('Trocar pelo último rascunho da IA')
+                    ->visible(fn (ViewRecord $livewire): bool => filled(data_get($livewire->getRecord()->ai_defense, 'narrative'))),
+            ])
+            ->action(function (array $data, ViewRecord $livewire, DisputeEventRecorder $events): void {
+                $dispute = $livewire->getRecord();
+                $text = ($data['use_ai_draft'] ?? false) ? data_get($dispute->ai_defense, 'narrative') : ($data['defense_text'] ?: null);
+
+                $dispute->forceFill(['defense_text' => $text])->save();
+                $events->record(DisputeEventType::DEFENSE_EDITED, $dispute, ($data['use_ai_draft'] ?? false) ? 'Texto da defesa trocado pelo rascunho da IA.' : 'Texto da defesa editado pelo analista.', source: 'analyst');
+                Notification::make()->success()->title('Texto da defesa salvo')->send();
             });
     }
 

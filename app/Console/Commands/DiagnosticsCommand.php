@@ -50,6 +50,13 @@ class DiagnosticsCommand extends Command
         );
         $this->check('Woovi base URL', 'ok', (string) config('services.woovi.base_url'));
         $this->check(
+            'Defesa com IA (Claude)',
+            filled(config('services.anthropic.api_key')) ? 'ok' : 'warn',
+            filled(config('services.anthropic.api_key'))
+                ? 'ligada: '.config('services.anthropic.model').', effort '.config('services.anthropic.effort')
+                : 'desligada (ANTHROPIC_API_KEY vazio): botão "Gerar defesa com IA" escondido',
+        );
+        $this->check(
             'Conta mestre Woovi (importação)',
             filled(config('services.woovi.master_app_id')) ? 'ok' : 'warn',
             filled(config('services.woovi.master_app_id'))

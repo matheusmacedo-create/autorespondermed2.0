@@ -237,6 +237,25 @@ class WooviClient
     }
 
     /**
+     * GET /api/v1/funds-recovery/{id}/infraction-reports - notificações de infração
+     * do Banco Central ligadas à recuperação de fundos (escopo FUNDS_RECOVERY_GET,
+     * feature "MED API"). Traz o `reportDetails`: o relato de quem contestou.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getInfractionReports(string $fundsRecoveryId): array
+    {
+        $response = $this->send(
+            fn (PendingRequest $http) => $http->get('/api/v1/funds-recovery/'.rawurlencode($fundsRecoveryId).'/infraction-reports'),
+            'as notificações de infração',
+        );
+
+        $json = $response->json();
+
+        return array_values(array_filter(is_array($json) && array_is_list($json) ? $json : (array) ($json['infractionReports'] ?? []), 'is_array'));
+    }
+
+    /**
      * GET /api/v1/partner/affiliate - subcontas administradas pela conta mestre
      * (escopo PARTNER_COMPANY_GET_LIST). Paginação por skip/limit.
      *

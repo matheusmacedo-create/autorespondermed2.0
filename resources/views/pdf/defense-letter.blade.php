@@ -46,6 +46,11 @@
         @endif
     </table>
 
+    @if ($defense)
+        <h2>Defesa da ÚnicoPag</h2>
+        <div class="statement">{{ $defense }}</div>
+    @endif
+
     @if ($facts)
         <h2>Fatos conferidos pela ÚnicoPag</h2>
         <ul class="facts">

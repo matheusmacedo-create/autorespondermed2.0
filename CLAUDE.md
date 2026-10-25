@@ -52,6 +52,15 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   enviado nunca muda). Só item ok da conferência vai para a carta. PII do pagador: payload criptografado,
   PDFs mascarados (`App\Support\Mask`), nada no link público nem no Discord.
 
+## Defesa com IA
+- "Gerar defesa com IA" na ficha (job `GenerateAiDefense`, aviso no sininho): `GenerateAiDefenseAction` monta o caso
+  só com fatos ok da conferência, pendências, evidências, relato do seller e - com a feature "MED API" - o relato
+  de quem contestou (`/funds-recovery/{id}/infraction-reports`); `ClaudeDefenseWriter` (SDK oficial, JSON Schema,
+  `fallbacks: 'default'`) devolve narrativa, argumentos, pontos fracos, provas que faltam e recomendação.
+- Nada vai à Woovi pela IA: o texto (`disputes.defense_text`) é do analista, entra na carta como "Defesa da
+  ÚnicoPag" e sai pelo "Enviar à Woovi" de sempre. Rascunho novo nunca sobrescreve texto editado. Nenhum dado
+  do pagador vai ao modelo. Testes trocam o `DefenseWriter` por um falso (o SDK não passa pelo `Http::fake`).
+
 ## Armadilhas
 - O webhook de disputa da Woovi **não diz de qual conta veio**: a conta sai da `webhook_key` na URL. Não
   troque por uma URL única.

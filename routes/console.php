@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schedule;
 // MEDs. Antes do sincronizar, para a conta nova já entrar na mesma hora.
 Schedule::command('med:importar-contas')
     ->hourly()
-    ->when(fn (): bool => filled(config('services.woovi.master_app_id')))
+    ->when(fn (): bool => filled(config('services.woovi.master_app_id')) && config('services.woovi.partner_import'))
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/med-agendado.log'));
 

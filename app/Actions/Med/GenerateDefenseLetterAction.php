@@ -34,7 +34,7 @@ class GenerateDefenseLetterAction
 
         $data = $this->data($dispute);
 
-        if (blank($data['statement']) && blank($data['analystNotes']) && $data['facts'] === []) {
+        if (blank($data['statement']) && blank($data['analystNotes']) && blank($data['defense']) && $data['facts'] === []) {
             return null;
         }
 
@@ -72,6 +72,7 @@ class GenerateDefenseLetterAction
         $register = $dispute->sourcePayload(DossierSource::UNICOPAG_REGISTER);
 
         return [
+            'defense' => $dispute->defense_text,
             'statement' => $dispute->seller_statement,
             'analystNotes' => $dispute->analyst_notes,
             'sellerContactName' => $dispute->seller_contact_name,

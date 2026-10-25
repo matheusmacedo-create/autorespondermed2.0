@@ -345,8 +345,33 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 - `GET /api/woovi-accounts/{account_id}/disputes` - últimos 100 casos da conta, com `seller_link` enquanto o
   caso aceita defesa (para o dashboard do seller mostrar o botão).
 
+## 10. Defesa com IA (25/10/2026)
+
+- **A Woovi não recebe texto de defesa**: a única resposta a um MED é `POST /dispute/{id}/evidence` com documentos
+  (`fileId`/`url` + `description`). Não há rota para aceitar a devolução. "Responder com IA" = a IA redige o texto
+  que vai **dentro da carta de defesa** (PDF), enviada como evidência. `[openapi]`
+- **Insumo mais valioso**: `GET /funds-recovery/{fundsRecoveryId}/infraction-reports` traz `reportDetails` (o relato
+  de quem contestou, registrado no Bacen) e `analysisResult`. Exige a feature "MED API" e `FUNDS_RECOVERY_GET`; o
+  `fundsRecoveryId` vem no item de `/funds-recovery/{e2e}/disputes`. Sem a feature (403) a IA segue sem o relato. `[openapi]`
+- **Desenho**: `GenerateAiDefenseAction` -> `DefenseWriter` (`ClaudeDefenseWriter`, modelo `MED_IA_MODEL`, padrão
+  `claude-opus-5-5`, effort `high`, saída em JSON Schema estrito, `fallbacks: 'default'` com o beta
+  `server-side-fallback-2026-07-01` para recusa por política). Os dados do caso vão entre marcações e o system prompt
+  diz que instrução dentro deles não vale (relato do seller e da vítima são texto livre). O modelo só afirma o que
+  está em "fatos conferidos" (os mesmos `MatchDossierAction::facts`), atribui o resto ao recebedor e recomenda
+  `defender` / `defender_com_ressalvas` / `nao_defender`. Recusa, `max_tokens`, JSON inválido e erros da API viram
+  `AI_DEFENSE_FAILED` na linha do tempo e aviso no sininho; nada é salvo. `[código]`
+- **LGPD**: vão ao modelo o tipo, valor, motivo, alegação, datas, nome do recebedor, fatos (já mascarados),
+  pendências, tipo/descrição das evidências, relato do seller, parecer e o `reportDetails`. Não vão nome, CPF,
+  e-mail nem telefone de quem pagou. O `reportDetails` é texto livre do Bacen e pode citar dado pessoal - é o
+  único ponto sem máscara; avaliar com o jurídico antes de ligar em produção.
+- **Conta mestre**: na UNICO PAG os MEDs caem **na própria conta mestre** (1.978 disputas desde 07/2025, 57 abertas em
+  25/10), não nas subcontas; a conta não tem a função de parceiro (`/partner/*` = 403 "Empresa não possui
+  parceirias"). Por isso a conta mestre é cadastrada como uma `woovi_account` e `WOOVI_PARTNER_IMPORT=false`
+  desliga a importação. Cada caso ainda não sabe de qual seller é: ligar pela venda (rota de venda do unico-api).
+
 ## Histórico de atualizações
 
+- **2026-10-25** - defesa com IA (seção 10); MEDs caem na conta mestre; `WOOVI_PARTNER_IMPORT`.
 - **2026-10-22** - importação automática das subcontas pela conta mestre (`med:importar-contas`, API de
   parceiro: `/partner/affiliate`, `/partner/company`, `/partner/application`); escopos conferidos no OpenAPI.
 - **2026-10-12** - segunda revisão do dossiê: lista branca da alegação, descarte sob trava com reconferência,

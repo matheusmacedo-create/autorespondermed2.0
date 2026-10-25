@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Disputes\Schemas;
 
+use App\Actions\Med\GenerateAiDefenseAction;
 use App\Actions\Med\MatchDossierAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
@@ -75,6 +76,49 @@ class DisputeInfolist
                                     ->label('Parecer da ÚnicoPag (vai na carta de defesa)')
                                     ->placeholder('Sem parecer. Use "Mais > Parecer da ÚnicoPag".')
                                     ->extraAttributes(['class' => 'whitespace-pre-line']),
+                            ]),
+
+                        Section::make('Defesa da ÚnicoPag')
+                            ->description('Texto que vai na carta enviada à Woovi. A IA redige o rascunho; quem decide é o analista.')
+                            ->visible(fn (Dispute $record): bool => filled($record->defense_text) || filled($record->ai_defense))
+                            ->schema([
+                                TextEntry::make('ai_recommendation')
+                                    ->label('Recomendação da IA')
+                                    ->state(fn (Dispute $record): ?string => $record->ai_defense
+                                        ? ucfirst(GenerateAiDefenseAction::recommendationLabel(data_get($record->ai_defense, 'recommendation'))).' - '.data_get($record->ai_defense, 'recommendation_reason')
+                                        : null)
+                                    ->badge()
+                                    ->color(fn (Dispute $record): string => match (data_get($record->ai_defense, 'recommendation')) {
+                                        'defender' => 'success',
+                                        'defender_com_ressalvas' => 'warning',
+                                        'nao_defender' => 'danger',
+                                        default => 'gray',
+                                    })
+                                    ->placeholder('Sem rascunho da IA'),
+                                TextEntry::make('defense_text')
+                                    ->label('Texto da defesa (vai na carta)')
+                                    ->placeholder('Sem texto. Use "Mais > Texto da defesa".')
+                                    ->extraAttributes(['class' => 'whitespace-pre-line']),
+                                TextEntry::make('ai_arguments')
+                                    ->label('Argumentos')
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->ai_defense, 'arguments', []))
+                                    ->listWithLineBreaks()->bulleted()
+                                    ->visible(fn (Dispute $record): bool => filled(data_get($record->ai_defense, 'arguments'))),
+                                TextEntry::make('ai_weaknesses')
+                                    ->label('Pontos fracos (o banco pode explorar)')
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->ai_defense, 'weaknesses', []))
+                                    ->listWithLineBreaks()->bulleted()->color('warning')
+                                    ->visible(fn (Dispute $record): bool => filled(data_get($record->ai_defense, 'weaknesses'))),
+                                TextEntry::make('ai_missing')
+                                    ->label('Provas que faltam')
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->ai_defense, 'missing_evidence', []))
+                                    ->listWithLineBreaks()->bulleted()
+                                    ->visible(fn (Dispute $record): bool => filled(data_get($record->ai_defense, 'missing_evidence'))),
+                                TextEntry::make('ai_defense_generated_at')
+                                    ->label('Rascunho gerado em')
+                                    ->dateTime('d/m/Y H:i', 'America/Sao_Paulo')
+                                    ->helperText(fn (Dispute $record): ?string => data_get($record->ai_defense, 'model') ? 'Modelo: '.data_get($record->ai_defense, 'model').(data_get($record->ai_defense, 'used_claim') ? ' · usou o relato de quem contestou' : ' · sem o relato de quem contestou') : null)
+                                    ->placeholder('—'),
                             ]),
 
                         Section::make('Conferência do dossiê')

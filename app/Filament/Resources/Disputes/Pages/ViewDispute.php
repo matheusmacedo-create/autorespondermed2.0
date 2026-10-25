@@ -26,7 +26,9 @@ class ViewDispute extends ViewRecord
         return [
             DisputeActions::sendToWoovi(),
             DisputeActions::requestComplement(),
+            DisputeActions::generateAiDefense(),
             ActionGroup::make([
+                DisputeActions::editDefenseText(),
                 DisputeActions::editAnalystNotes(),
                 DisputeActions::attachEvidence(),
                 DisputeActions::discardEvidence(),

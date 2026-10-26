@@ -51,10 +51,16 @@ class MerchantStoreAction
             $this->resolveWebsite($store, $dispute);
         }
 
+        // Site que a captura já percorreu sem achar política só volta a ser olhado no
+        // prazo de recaptura; erro técnico tenta de novo em algumas horas.
+        $retryAfter = $store->capture_status === 'failed' && $store->captured_at !== null
+            ? now()->subDays((int) config('med.lojas.recapturar_dias'))
+            : now()->subHours(self::RETRY_HOURS);
+
         if ($store->isFresh()) {
             $this->attach($dispute, $store);
         } elseif (filled($store->website) && $this->capturer->isAvailable()
-            && ($store->capture_attempted_at === null || $store->capture_attempted_at->lte(now()->subHours(self::RETRY_HOURS)))) {
+            && ($store->capture_attempted_at === null || $store->capture_attempted_at->lte($retryAfter))) {
             rescue(function () use ($store): void {
                 CaptureMerchantStore::dispatch($store->id);
             }, report: true);
@@ -79,7 +85,7 @@ class MerchantStoreAction
 
         foreach ($candidates as $source => $resolve) {
             if (($website = self::normalizeUrl($resolve())) !== null) {
-                $store->forceFill(['website' => $website, 'website_source' => $source])->save();
+                $store->forceFill(['website' => $website, 'website_source' => $source, 'capture_status' => null, 'capture_error' => null])->save();
 
                 return;
             }
@@ -107,7 +113,15 @@ class MerchantStoreAction
         }
 
         if ($result['pages'] === []) {
-            $store->forceFill(['capture_status' => 'failed', 'capture_error' => implode(' · ', $result['errors']) ?: 'Nenhuma página de política encontrada.'])->save();
+            // A captura rodou e o site não tem política: o que havia de antes sai, senão
+            // os casos continuariam com uma política que a loja não publica mais.
+            $this->forgetCaptures($store);
+            $store->forceFill([
+                'captures' => [],
+                'captured_at' => now(),
+                'capture_status' => 'failed',
+                'capture_error' => implode(' · ', $result['errors']) ?: 'Nenhuma página de política encontrada.',
+            ])->save();
 
             return $store;
         }
@@ -148,19 +162,42 @@ class MerchantStoreAction
         return $store;
     }
 
+    private function forgetCaptures(MerchantStore $store): void
+    {
+        foreach ((array) $store->captures as $capture) {
+            rescue(fn () => Storage::disk($capture['disk'])->delete($capture['path']), report: false);
+        }
+    }
+
     /**
-     * Anexa as políticas capturadas ao caso (uma evidência por página). Devolve
-     * quantas mudaram.
+     * Deixa as políticas do caso iguais às capturadas da loja: anexa a página nova ou
+     * mudada e tira a que a loja não tem mais (só o que ainda não foi à Woovi).
+     * Devolve quantas mudaram.
      */
     public function attach(Dispute $dispute, MerchantStore $store): int
     {
-        if (! $dispute->status->canSendToWoovi() || ! $store->isFresh()) {
+        if (! $dispute->status->canSendToWoovi()) {
             return 0;
         }
 
+        $captures = $store->isFresh() ? (array) $store->captures : [];
+        $current = collect($captures)->map(fn (array $capture): string => "store_{$capture['kind']}")->all();
         $changed = 0;
 
-        foreach ((array) $store->captures as $capture) {
+        if ($store->captured_at !== null) {
+            $dispute->evidences()
+                ->where('kind', EvidenceKind::STORE_POLICY->value)
+                ->whereNull('sent_at')
+                ->whereNotIn('source', $current)
+                ->get()
+                ->each(function ($evidence) use (&$changed): void {
+                    rescue(fn () => Storage::disk($evidence->disk)->delete($evidence->path), report: false);
+                    $evidence->forceDelete();
+                    $changed++;
+                });
+        }
+
+        foreach ($captures as $capture) {
             $contents = rescue(fn () => Storage::disk($capture['disk'])->get($capture['path']), null, report: false);
 
             if (! is_string($contents) || $contents === '') {
@@ -186,7 +223,14 @@ class MerchantStoreAction
         }
 
         if ($changed > 0) {
-            $this->events->record(DisputeEventType::STORE_POLICY_ATTACHED, $dispute, "Políticas do site da loja anexadas ({$store->website}).", ['store_id' => $store->id]);
+            $this->events->record(
+                DisputeEventType::STORE_POLICY_ATTACHED,
+                $dispute,
+                $captures === []
+                    ? "Políticas do site da loja retiradas: o site não tem página de política ({$store->website})."
+                    : "Políticas do site da loja anexadas ({$store->website}).",
+                ['store_id' => $store->id],
+            );
         }
 
         return $changed;

@@ -40,6 +40,8 @@ class MerchantStoreTest extends DossierTestCase
 
             public ?string $website = null;
 
+            public bool $noPolicies = false;
+
             public function isAvailable(): bool
             {
                 return $this->available;
@@ -49,6 +51,10 @@ class MerchantStoreTest extends DossierTestCase
             {
                 $this->calls++;
                 $this->website = $website;
+
+                if ($this->noPolicies) {
+                    return ['final_url' => $website, 'errors' => ['shipping: página não encontrada'], 'pages' => []];
+                }
 
                 return ['final_url' => $website, 'errors' => [], 'pages' => [
                     ['kind' => 'shipping', 'url' => $website.'/politica-de-entrega', 'title' => 'Entrega', 'pdf' => '%PDF-1.4 entrega', 'text' => 'Prazo de entrega: 7 a 12 dias úteis após o despacho.'],
@@ -165,6 +171,25 @@ class MerchantStoreTest extends DossierTestCase
             ->assertOk()
             ->assertSee('Loja do Zé')
             ->assertSee('Parcial');
+    }
+
+    public function test_site_without_policies_removes_what_was_attached_before(): void
+    {
+        $dispute = $this->receive();
+        $store = MerchantStore::query()->sole();
+        $this->assertSame(2, $dispute->evidences()->where('kind', EvidenceKind::STORE_POLICY->value)->count());
+
+        $this->capturer->noPolicies = true;
+        $stores = app(MerchantStoreAction::class);
+        $stores->spread($stores->capture($store));
+
+        $this->assertSame('failed', $store->fresh()->capture_status);
+        $this->assertSame([], $store->fresh()->captures);
+        $this->assertSame(0, $dispute->evidences()->where('kind', EvidenceKind::STORE_POLICY->value)->count());
+
+        // Não volta a percorrer o mesmo site a cada MED novo.
+        $stores->forDispute($dispute->fresh());
+        $this->assertSame(2, $this->capturer->calls);
     }
 
     public function test_url_normalization(): void

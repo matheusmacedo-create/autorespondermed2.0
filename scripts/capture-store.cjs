@@ -104,6 +104,12 @@ async function bodyText(page) {
         await open(page, input.website, timeout);
         result.final_url = page.url();
         const base = new URL(page.url());
+        // Página sem query nem âncora: link de política que volta para a página inicial
+        // (loja de página única com "Termos" no rodapé apontando para ela mesma) não é
+        // política, e a mesma página não vale para dois tipos.
+        const pageKey = (url) => { const u = new URL(url); return u.origin.replace('://www.', '://') + u.pathname.replace(/\/+$/, ''); };
+        const homeKey = pageKey(page.url());
+        const usedKeys = new Set();
 
         const links = await page.$$eval('a[href]', (as) => as.map((a) => ({ href: a.href, text: (a.innerText || a.title || '').trim() })));
         const sameSite = links.filter((l) => {
@@ -125,6 +131,8 @@ async function bodyText(page) {
                 try {
                     const response = await open(page, url, timeout);
                     if (!response || response.status() >= 400) continue;
+                    const key = pageKey(page.url());
+                    if ((key === homeKey && url !== given) || usedKeys.has(key)) continue;
                     const text = await bodyText(page);
                     if (text.length < 200 || !rule.match.test(text)) continue;
 
@@ -143,13 +151,14 @@ async function bodyText(page) {
                     });
 
                     result.pages.push({ kind, url: page.url(), title: await page.title(), file, text: text.slice(0, 20000) });
+                    usedKeys.add(key);
                     done = true;
                 } catch (e) {
                     result.errors.push(`${kind}: ${String(e.message || e).slice(0, 200)}`);
                 }
             }
 
-            if (!done) result.errors.push(`${kind}: página não encontrada`);
+            if (!done) result.errors.push(`${kind}: página não encontrada (link ausente ou que volta para a página inicial)`);
         }
     } catch (e) {
         result.errors.push(String(e.message || e).slice(0, 300));

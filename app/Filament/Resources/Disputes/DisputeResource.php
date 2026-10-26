@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Disputes;
 
-use App\Enums\DisputeStatus;
 use App\Filament\Resources\Disputes\Pages\ListDisputes;
 use App\Filament\Resources\Disputes\Pages\ViewDispute;
 use App\Filament\Resources\Disputes\Schemas\DisputeInfolist;
@@ -43,9 +42,7 @@ class DisputeResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $count = Dispute::query()->inWindow()
-            ->whereIn('status', [DisputeStatus::PENDING_SELLER->value, DisputeStatus::SELLER_SUBMITTED->value])
-            ->count();
+        $count = Dispute::query()->inWindow()->toDefend()->count();
 
         return $count > 0 ? (string) $count : null;
     }
@@ -57,7 +54,7 @@ class DisputeResource extends Resource
 
     public static function getNavigationBadgeTooltip(): ?string
     {
-        return 'MEDs abertos esperando defesa';
+        return 'MEDs com prazo correndo, esperando defesa';
     }
 
     public static function infolist(Schema $schema): Schema

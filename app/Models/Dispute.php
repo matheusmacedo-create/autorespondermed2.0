@@ -245,6 +245,22 @@ class Dispute extends Model
         }
     }
 
+    /**
+     * Ainda pedem defesa (aberto ou com resposta do lojista) e o prazo interno não
+     * venceu. O vencido fica fora da fila de trabalho (aba "Prazo vencido").
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeToDefend(Builder $query, bool $overdue = false): void
+    {
+        $query->whereIn('status', [DisputeStatus::PENDING_SELLER->value, DisputeStatus::SELLER_SUBMITTED->value])
+            ->when(
+                $overdue,
+                fn (Builder $query) => $query->where('respond_by', '<', now()),
+                fn (Builder $query) => $query->where(fn (Builder $query) => $query->whereNull('respond_by')->orWhere('respond_by', '>=', now())),
+            );
+    }
+
     public static function windowStart(): ?Carbon
     {
         $days = (int) config('med.janela_dias');

@@ -93,4 +93,20 @@ class OperationWindowTest extends TestCase
         Mail::assertNothingSent();
         $this->assertNull($dispute->fresh()->seller_notified_at);
     }
+
+    public function test_queue_shows_the_nearest_deadline_first_and_leaves_the_overdue_out(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $later = Dispute::factory()->create(['opened_at' => now()->subDay(), 'respond_by' => now()->addHours(40)]);
+        $sooner = Dispute::factory()->create(['opened_at' => now()->subDay(), 'respond_by' => now()->addHours(3)]);
+        $overdue = Dispute::factory()->create(['opened_at' => now()->subDays(4), 'respond_by' => now()->subHours(5)]);
+
+        Livewire::test(ListDisputes::class)
+            ->assertCanSeeTableRecords([$sooner, $later], inOrder: true)
+            ->assertCanNotSeeTableRecords([$overdue]);
+
+        Livewire::test(ListDisputes::class, ['activeTab' => 'vencidos'])
+            ->assertCanSeeTableRecords([$overdue])
+            ->assertCanNotSeeTableRecords([$sooner, $later]);
+    }
 }

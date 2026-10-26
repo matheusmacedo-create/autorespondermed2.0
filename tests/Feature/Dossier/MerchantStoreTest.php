@@ -192,6 +192,23 @@ class MerchantStoreTest extends DossierTestCase
         $this->assertSame(2, $this->capturer->calls);
     }
 
+    public function test_analyst_informs_the_site_and_the_capture_runs(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $store = MerchantStore::query()->create(['merchant_account_id' => '9999', 'name' => 'Loja sem site']);
+
+        Livewire::test(ListMerchantStores::class)
+            ->assertSee('Sem site')
+            ->callTableAction('website', $store, ['website' => 'lojasemsite.com.br'])
+            ->assertHasNoTableActionErrors();
+
+        $store->refresh();
+        $this->assertSame('https://lojasemsite.com.br', $store->website);
+        $this->assertSame('manual', $store->website_source);
+        $this->assertSame(1, $this->capturer->calls);
+        $this->assertSame('partial', $store->capture_status);
+    }
+
     public function test_url_normalization(): void
     {
         $this->assertSame('https://loja.com.br', MerchantStoreAction::normalizeUrl(' loja.com.br '));

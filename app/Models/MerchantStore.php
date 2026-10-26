@@ -16,6 +16,12 @@ class MerchantStore extends Model
         'exchange' => 'Política de trocas e devoluções',
     ];
 
+    public const SHORT = [
+        'shipping' => 'Entrega',
+        'terms' => 'Termos',
+        'exchange' => 'Trocas',
+    ];
+
     protected $fillable = [
         'merchant_account_id',
         'name',

@@ -11,9 +11,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 /**
  * A lista é a fila de trabalho, só com os MEDs da janela (`med.janela_dias`). A
- * primeira aba é tudo que ainda precisa de defesa, pelo prazo mais curto; as
- * seguintes separam o que trava a defesa (lojista não identificado) do que já
- * está pronto para revisar.
+ * primeira aba é o que ainda dá tempo de defender, do prazo mais curto para o mais
+ * longo; o que já venceu sai da fila (aba "Prazo vencido", no fim).
  */
 class ListDisputes extends ListRecords
 {
@@ -24,18 +23,19 @@ class ListDisputes extends ListRecords
         $start = Dispute::windowStart();
 
         return $start
-            ? 'MEDs abertos desde '.$start->timezone('America/Sao_Paulo')->format('d/m/Y').' (últimos '.config('med.janela_dias').' dias).'
+            ? 'MEDs abertos desde '.$start->timezone('America/Sao_Paulo')->format('d/m/Y').', do prazo mais curto para o mais longo.'
             : null;
     }
 
     public function getTabs(): array
     {
-        $toDefend = fn (Builder $query): Builder => $query->whereIn('status', [DisputeStatus::PENDING_SELLER->value, DisputeStatus::SELLER_SUBMITTED->value]);
         $count = fn (callable $scope): int => $scope(Dispute::query()->inWindow())->count();
 
-        $withoutMerchant = fn (Builder $query): Builder => $toDefend($query)->whereNull('merchant_account_id');
-        $defenseReady = fn (Builder $query): Builder => $toDefend($query)->whereNotNull('defense_text');
-        $sellerAnswered = fn (Builder $query): Builder => $query->where('status', DisputeStatus::SELLER_SUBMITTED->value);
+        $toDefend = fn (Builder $query): Builder => $query->toDefend();
+        $withoutMerchant = fn (Builder $query): Builder => $query->toDefend()->whereNull('merchant_account_id');
+        $defenseReady = fn (Builder $query): Builder => $query->toDefend()->whereNotNull('defense_text');
+        $sellerAnswered = fn (Builder $query): Builder => $query->toDefend()->where('status', DisputeStatus::SELLER_SUBMITTED->value);
+        $overdue = fn (Builder $query): Builder => $query->toDefend(overdue: true);
 
         return [
             'abertos' => Tab::make('Para defender')
@@ -46,13 +46,13 @@ class ListDisputes extends ListRecords
 
             'sem_lojista' => Tab::make('Sem lojista')
                 ->icon('heroicon-o-question-mark-circle')
-                ->badge(fn (): int => $count($withoutMerchant))
+                ->badge(fn (): ?int => $count($withoutMerchant) ?: null)
                 ->badgeColor('danger')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $withoutMerchant($query)->reorder('respond_by', 'asc')),
 
             'defesa_pronta' => Tab::make('Defesa pronta')
                 ->icon('heroicon-o-document-check')
-                ->badge(fn (): int => $count($defenseReady))
+                ->badge(fn (): ?int => $count($defenseReady) ?: null)
                 ->badgeColor('success')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $defenseReady($query)->reorder('respond_by', 'asc')),
 
@@ -64,7 +64,7 @@ class ListDisputes extends ListRecords
 
             'enviados' => Tab::make('Enviados à Woovi')
                 ->icon('heroicon-o-paper-airplane')
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', DisputeStatus::EVIDENCE_SENT->value)),
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', DisputeStatus::EVIDENCE_SENT->value)->reorder('evidence_sent_at', 'desc')),
 
             'encerrados' => Tab::make('Encerrados')
                 ->icon('heroicon-o-check-circle')
@@ -72,7 +72,11 @@ class ListDisputes extends ListRecords
                     ->whereIn('status', array_map(fn (DisputeStatus $status) => $status->value, DisputeStatus::closed()))
                     ->reorder('closed_at', 'desc')),
 
-            'todos' => Tab::make('Todos'),
+            'vencidos' => Tab::make('Prazo vencido')
+                ->icon('heroicon-o-clock')
+                ->badge(fn (): ?int => $count($overdue) ?: null)
+                ->badgeColor('gray')
+                ->modifyQueryUsing(fn (Builder $query): Builder => $overdue($query)->reorder('respond_by', 'desc')),
         ];
     }
 }

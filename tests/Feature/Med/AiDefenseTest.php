@@ -110,6 +110,58 @@ class AiDefenseTest extends TestCase
         $this->assertSame('Texto da defesa redigido.', $dispute->fresh()->ai_defense['narrative']);
     }
 
+    public function test_untouched_previous_draft_is_replaced_by_the_new_one(): void
+    {
+        Http::fake(['*' => Http::response([], 200)]);
+        $dispute = $this->dispute();
+        $dispute->forceFill(['defense_text' => 'Rascunho antigo.', 'ai_defense' => ['narrative' => 'Rascunho antigo.']])->save();
+
+        app(GenerateAiDefenseAction::class)->handle($dispute, 1);
+
+        $this->assertSame('Texto da defesa redigido.', $dispute->fresh()->defense_text);
+    }
+
+    public function test_the_ai_gets_the_product_and_the_delivery_deadline_in_business_days(): void
+    {
+        Http::fake(['*' => Http::response([], 200)]);
+        $this->travelTo(now()->setDate(2026, 10, 26)->setTime(12, 0));
+        $dispute = $this->dispute();
+        $dispute->forceFill(['opened_at' => '2026-10-21 13:55:00'])->save();
+        DisputeSource::query()->create(['dispute_id' => $dispute->id, 'source' => DossierSource::WOOVI_TRANSACTION, 'status' => SourceStatus::OK, 'payload' => ['time' => '2026-10-18T07:52:00Z'], 'fetched_at' => now()]);
+        DisputeSource::query()->create(['dispute_id' => $dispute->id, 'source' => DossierSource::UNICOPAG_SALE, 'status' => SourceStatus::OK, 'payload' => ['order' => ['items' => [['name' => 'Auto Ajustes Glasses | Compre 1 Leve 2', 'quantity' => 1]]]], 'fetched_at' => now()]);
+
+        app(GenerateAiDefenseAction::class)->handle($dispute->fresh(), 1);
+
+        $case = $this->writer->received;
+        $this->assertSame('Auto Ajustes Glasses | Compre 1 Leve 2', $case['case']['produto']);
+        // Pago no domingo 18/10, MED na quarta 21/10: 3 dias úteis (seg, ter e qua).
+        $this->assertSame(3, $case['delivery']['dias_uteis_do_pagamento_ate_a_abertura_do_med']);
+        $this->assertSame(18, $case['delivery']['prazo_maximo_dias_uteis_desde_o_pagamento']);
+        $this->assertTrue($case['delivery']['med_aberto_dentro_do_prazo_de_entrega']);
+        $this->assertStringContainsString('<entrega>', (new ClaudeDefenseWriter)->prompt($case));
+    }
+
+    public function test_letter_follows_the_compliance_format_with_the_requester_masked(): void
+    {
+        $dispute = $this->dispute();
+        $dispute->forceFill(['payer_name' => 'INAJARA Marinho Rodrigues Correa', 'defense_text' => 'Após análise, a compra foi legítima.'])->save();
+        $data = null;
+        View::composer('pdf.defense-letter', function ($view) use (&$data): void {
+            $data ??= $view->getData();
+        });
+
+        app(GenerateDefenseLetterAction::class)->handle($dispute->fresh());
+        $html = view('pdf.defense-letter', $data)->render();
+
+        $this->assertStringContainsString('DEFESA – Mecanismo Especial de Devolução (MED)', $html);
+        $this->assertStringContainsString('Inajara M. R. C.', $html);
+        $this->assertStringNotContainsString('Marinho', $html);
+        $this->assertStringContainsString('Após análise, a compra foi legítima.', $html);
+        $this->assertStringContainsString('contato@unicopag.com', $html);
+        $this->assertStringContainsString('seja indeferido', $html);
+        $this->assertStringContainsString('Compliance Único Pag', $html);
+    }
+
     public function test_refusal_or_error_is_recorded_and_nothing_is_saved(): void
     {
         Http::fake(['*' => Http::response([], 200)]);

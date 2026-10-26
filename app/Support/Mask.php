@@ -24,6 +24,22 @@ class Mask
         };
     }
 
+    /**
+     * Nome: primeiro nome inteiro e as iniciais dos demais ("Maria S. O.").
+     */
+    public static function name(?string $value): ?string
+    {
+        $parts = preg_split('/\s+/', trim((string) $value), -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($parts === [] || $parts === false) {
+            return null;
+        }
+
+        $first = mb_convert_case(array_shift($parts), MB_CASE_TITLE);
+
+        return trim($first.' '.implode(' ', array_map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)).'.', $parts)));
+    }
+
     public static function email(?string $value): ?string
     {
         $value = trim((string) $value);

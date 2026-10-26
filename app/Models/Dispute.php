@@ -141,6 +141,30 @@ class Dispute extends Model
         return data_get($this->merchant, 'trade_name') ?: data_get($this->merchant, 'name') ?: null;
     }
 
+    /**
+     * Quando o Pix foi pago: a hora da transação na Woovi, ou a data da venda.
+     */
+    public function paidAt(): ?Carbon
+    {
+        $time = data_get($this->sourcePayload(DossierSource::WOOVI_TRANSACTION), 'time')
+            ?? data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'paid_at')
+            ?? data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'created_at');
+
+        return is_string($time) ? rescue(fn () => Carbon::parse($time), null, report: false) : null;
+    }
+
+    /**
+     * Produtos do pedido, pela venda na plataforma ("Óculos | Compre 1 Leve 2 (x2)").
+     */
+    public function products(): ?string
+    {
+        $items = collect((array) data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'order.items', []))
+            ->filter(fn ($item): bool => is_array($item) && filled($item['name'] ?? null))
+            ->map(fn (array $item): string => trim((string) $item['name']).((int) ($item['quantity'] ?? 1) > 1 ? ' (x'.(int) $item['quantity'].')' : ''));
+
+        return $items->isEmpty() ? null : mb_substr($items->implode('; '), 0, 300);
+    }
+
     public function wooviAccount(): BelongsTo
     {
         return $this->belongsTo(WooviAccount::class);

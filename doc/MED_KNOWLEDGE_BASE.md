@@ -389,6 +389,12 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   "Cadastro" fica falha até o unico-api liberar essa rota para a integração `med`.
 - **Comprovante oficial da Woovi** responde 401 "missing the required scope" no AppID da conta mestre: falta o
   escopo do `receipt/pix-in` no aplicativo.
+- **Modelo de defesa da operação** (PDF da Compliance, caso de R$ 177,00 de 18/10/2026): venda legítima +
+  pedido dentro do prazo de entrega em dias úteis (política das lojas: rastreio em até 3 dias úteis, entrega em
+  10 a 15) + "o MED é para fraude, não para atraso ou desacordo comercial" + canais oficiais + pedido de
+  indeferimento. Anexos usados: comprovante de pagamento da ÚnicoPag e print da política de entrega do site.
+  Virou o formato da carta e o estilo da IA. Os MEDs abertos são quase todos "não recebi": sem esse argumento a
+  IA recomendava "não defender" por falta de prova de entrega.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

@@ -62,6 +62,10 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 
 ## Defesa com IA
 - Com `MED_IA_AUTOMATICA`, o fim da montagem do dossiê já enfileira o rascunho (uma vez por caso).
+- Carta no formato da Compliance (`config('med.defesa')`): cabeçalho (requerente mascarado, data, valor, produto),
+  corpo = `defense_text`, canais oficiais, pedido de indeferimento, "Compliance Único Pag"; fatos e evidências
+  em anexo. A IA escreve só o corpo, no estilo do modelo real que está no `ClaudeDefenseWriter`, e recebe o prazo
+  da política de entrega em dias úteis (`BusinessDays`) para argumentar "dentro do prazo, MED não é para atraso".
 - "Gerar defesa com IA" na ficha (job `GenerateAiDefense`, aviso no sininho): `GenerateAiDefenseAction` monta o caso
   só com fatos ok da conferência, pendências, evidências, relato do seller e - com a feature "MED API" - o relato
   de quem contestou (`/funds-recovery/{id}/infraction-reports`); `ClaudeDefenseWriter` (SDK oficial, JSON Schema,

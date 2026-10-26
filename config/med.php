@@ -32,6 +32,23 @@ return [
     'ia_automatica' => (bool) env('MED_IA_AUTOMATICA', true),
 
     /*
+    | Carta de defesa no formato da Compliance (modelo usado pela operação antes do
+    | sistema): cabeçalho com requerente, data, valor e produto; o texto da defesa;
+    | os canais oficiais de atendimento; o pedido de indeferimento e a assinatura.
+    | A política de entrega é a que as lojas da plataforma publicam (até 3 dias úteis
+    | para o rastreio e 10 a 15 dias úteis para a entrega): a IA compara o tempo
+    | decorrido com ela antes de recomendar.
+    */
+    'defesa' => [
+        'assinatura' => env('MED_DEFESA_ASSINATURA', 'Compliance Único Pag'),
+        'whatsapp' => env('MED_DEFESA_WHATSAPP', '(11) 8890-1256'),
+        'email' => env('MED_DEFESA_EMAIL', 'contato@unicopag.com'),
+        'prazo_rastreio_dias_uteis' => (int) env('MED_PRAZO_RASTREIO_DIAS_UTEIS', 3),
+        'prazo_entrega_dias_uteis_min' => (int) env('MED_PRAZO_ENTREGA_DIAS_UTEIS_MIN', 10),
+        'prazo_entrega_dias_uteis' => (int) env('MED_PRAZO_ENTREGA_DIAS_UTEIS', 15),
+    ],
+
+    /*
     | Fila de análise: com quantas horas restantes o prazo fica amarelo e
     | vermelho na fila e no painel.
     */

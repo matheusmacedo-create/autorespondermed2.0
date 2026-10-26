@@ -70,13 +70,38 @@ class SendEvidenceToWooviAction
         $mode = (string) config('services.woovi.evidence_mode', 'file_id');
 
         try {
-            $documents = [];
+            try {
+                $documents = [];
 
-            foreach ($pending as $evidence) {
-                [$documents[], $mode] = $this->document($client, $evidence, $mode, $dispute);
+                foreach ($pending as $evidence) {
+                    [$documents[], $mode] = $this->document($client, $evidence, $mode, $dispute);
+                }
+
+                $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
+            } catch (WooviException $e) {
+                // A conta pode subir o arquivo (FILE_POST) e mesmo assim não ter a feature
+                // de evidência por fileId: a recusa vem só no envio. Reenvia uma vez, por link.
+                if ($mode !== 'file_id' || ! $e->isFileIdNotAllowed()) {
+                    throw $e;
+                }
+
+                $this->events->record(
+                    DisputeEventType::EVIDENCE_SEND_FAILED,
+                    $dispute,
+                    'A Woovi não aceita evidência por arquivo nesta conta - reenviando por link.',
+                    ['status' => $e->status, 'error_code' => $e->errorCode],
+                    level: 'warning',
+                );
+
+                $mode = 'url';
+                $documents = [];
+
+                foreach ($pending as $evidence) {
+                    [$documents[]] = $this->document($client, $evidence, $mode, $dispute);
+                }
+
+                $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
             }
-
-            $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
         } catch (WooviException $e) {
             $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode], $source);
 

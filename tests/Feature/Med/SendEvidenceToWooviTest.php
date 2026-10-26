@@ -102,6 +102,43 @@ class SendEvidenceToWooviTest extends TestCase
         $this->assertSame(DisputeStatus::EVIDENCE_SENT, $this->dispute->fresh()->status);
     }
 
+    public function test_falls_back_to_signed_url_when_woovi_refuses_the_file_id_only_on_the_evidence_post(): void
+    {
+        // Como na conta mestre: o upload passa, a recusa vem no envio da evidência.
+        Http::fake([
+            'api.woovi.test/api/v1/files' => Http::response(['file' => ['id' => 'file-1']], 201),
+            'api.woovi.test/api/v1/dispute/*/evidence' => Http::sequence()
+                ->push(['error' => 'Your account does not have the permission to send a evidence by fileId'], 403)
+                ->push(['documents' => []]),
+        ]);
+
+        app(SendEvidenceToWooviAction::class)->handle($this->dispute);
+
+        $evidencePosts = collect(Http::recorded())->map(fn (array $pair) => $pair[0])->filter(fn (Request $r): bool => str_ends_with($r->url(), '/evidence'))->values();
+        $this->assertCount(2, $evidencePosts);
+        $this->assertTrue(collect($evidencePosts[0]->data()['documents'])->every(fn (array $doc): bool => isset($doc['fileId'])));
+        $this->assertTrue(collect($evidencePosts[1]->data()['documents'])->every(fn (array $doc): bool => ! isset($doc['fileId']) && str_contains($doc['url'] ?? '', 'signature=')));
+        $this->assertSame(DisputeStatus::EVIDENCE_SENT, $this->dispute->fresh()->status);
+        $this->assertDatabaseHas('dispute_events', ['dispute_id' => $this->dispute->id, 'event' => DisputeEventType::EVIDENCE_SENT->value]);
+    }
+
+    public function test_a_second_refusal_after_the_url_retry_keeps_everything_pending(): void
+    {
+        Http::fake([
+            'api.woovi.test/api/v1/files' => Http::response(['file' => ['id' => 'file-1']], 201),
+            'api.woovi.test/api/v1/dispute/*/evidence' => Http::response(['error' => 'Your account does not have the permission to send a evidence by fileId'], 403),
+        ]);
+
+        try {
+            app(SendEvidenceToWooviAction::class)->handle($this->dispute);
+            $this->fail('Envio deveria falhar.');
+        } catch (WooviException) {
+        }
+
+        $this->assertNotSame(DisputeStatus::EVIDENCE_SENT, $this->dispute->fresh()->status);
+        $this->assertSame(0, $this->dispute->evidences()->whereNotNull('sent_at')->count());
+    }
+
     public function test_the_signed_evidence_url_serves_the_file_and_an_unsigned_one_does_not(): void
     {
         $evidence = $this->dispute->evidences()->sole();

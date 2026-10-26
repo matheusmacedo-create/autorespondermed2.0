@@ -26,6 +26,7 @@ class DisputesTable
                         : 'Venda não localizada na plataforma')
                     ->color(fn (Dispute $record): ?string => $record->merchant ? null : 'danger')
                     ->weight(fn (Dispute $record): ?string => $record->merchant ? 'medium' : null)
+                    ->wrap()
                     ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('merchant', 'like', '%'.$search.'%')),
                 TextColumn::make('value')
                     ->label('Valor')
@@ -35,10 +36,10 @@ class DisputesTable
                     ->label('Tipo')
                     ->badge()
                     ->color('gray')
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('dispute_reason')
                     ->label('Motivo do pagador')
-                    ->limit(40)
+                    ->limit(60)
                     ->tooltip(fn (Dispute $record): ?string => $record->dispute_reason)
                     ->wrap()
                     ->placeholder('—'),

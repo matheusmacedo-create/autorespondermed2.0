@@ -60,8 +60,9 @@ class DisputeInfolist
                                 TextEntry::make('ai_recommendation')
                                     ->label('Recomendação da IA')
                                     ->state(fn (Dispute $record): ?string => $record->ai_defense
-                                        ? ucfirst(GenerateAiDefenseAction::recommendationLabel(data_get($record->ai_defense, 'recommendation'))).' - '.data_get($record->ai_defense, 'recommendation_reason')
+                                        ? ucfirst(GenerateAiDefenseAction::recommendationLabel(data_get($record->ai_defense, 'recommendation')))
                                         : null)
+                                    ->helperText(fn (Dispute $record): ?string => data_get($record->ai_defense, 'recommendation_reason'))
                                     ->badge()
                                     ->color(fn (Dispute $record): string => match (data_get($record->ai_defense, 'recommendation')) {
                                         'defender' => 'success',

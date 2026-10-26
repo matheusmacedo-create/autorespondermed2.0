@@ -48,7 +48,8 @@ class DisputesTable
                     ->badge()
                     ->formatStateUsing(fn (DisputeStatus $state): string => $state->label())
                     ->color(fn (DisputeStatus $state): string => $state->color())
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('respond_by')
                     ->label('Prazo')
                     ->dateTime('d/m H:i', 'America/Sao_Paulo')

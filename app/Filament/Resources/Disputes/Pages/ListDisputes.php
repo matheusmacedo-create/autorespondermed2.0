@@ -37,14 +37,15 @@ class ListDisputes extends ListRecords
         $sellerAnswered = fn (Builder $query): Builder => $query->toDefend()->where('status', DisputeStatus::SELLER_SUBMITTED->value);
         $overdue = fn (Builder $query): Builder => $query->toDefend(overdue: true);
 
-        return [
+        return array_filter([
             'abertos' => Tab::make('Para defender')
                 ->icon('heroicon-o-shield-exclamation')
                 ->badge(fn (): int => $count($toDefend))
                 ->badgeColor('warning')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $toDefend($query)->reorder('respond_by', 'asc')),
 
-            'sem_lojista' => Tab::make('Sem lojista')
+            // Aba de pendência só aparece com pendência: zerada, só ocupa espaço.
+            'sem_lojista' => $count($withoutMerchant) === 0 ? null : Tab::make('Sem lojista')
                 ->icon('heroicon-o-question-mark-circle')
                 ->badge(fn (): ?int => $count($withoutMerchant) ?: null)
                 ->badgeColor('danger')
@@ -56,13 +57,13 @@ class ListDisputes extends ListRecords
                 ->badgeColor('success')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $defenseReady($query)->reorder('respond_by', 'asc')),
 
-            'lojista_respondeu' => Tab::make('Lojista respondeu')
+            'lojista_respondeu' => $count($sellerAnswered) === 0 ? null : Tab::make('Lojista respondeu')
                 ->icon('heroicon-o-inbox-arrow-down')
                 ->badge(fn (): ?int => $count($sellerAnswered) ?: null)
                 ->badgeColor('info')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $sellerAnswered($query)->reorder('respond_by', 'asc')),
 
-            'enviados' => Tab::make('Enviados à Woovi')
+            'enviados' => Tab::make('Enviados')
                 ->icon('heroicon-o-paper-airplane')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', DisputeStatus::EVIDENCE_SENT->value)->reorder('evidence_sent_at', 'desc')),
 
@@ -77,6 +78,6 @@ class ListDisputes extends ListRecords
                 ->badge(fn (): ?int => $count($overdue) ?: null)
                 ->badgeColor('gray')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $overdue($query)->reorder('respond_by', 'desc')),
-        ];
+        ]);
     }
 }

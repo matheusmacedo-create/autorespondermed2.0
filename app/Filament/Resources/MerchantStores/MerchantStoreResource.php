@@ -77,13 +77,13 @@ class MerchantStoreResource extends Resource
                     ->url(fn (MerchantStore $record): ?string => $record->website)
                     ->openUrlInNewTab()
                     ->color(fn (MerchantStore $record): string => $record->website ? 'primary' : 'danger')
-                    ->limit(36)
+                    ->limit(32)
                     ->description(fn (MerchantStore $record): string => match ($record->website_source) {
-                        'unicopag_register' => 'pelo cadastro da plataforma',
-                        'kyc' => 'pelo KYC',
-                        'sale' => 'pela venda',
+                        'unicopag_register' => 'cadastro da plataforma',
+                        'kyc' => 'KYC',
+                        'sale' => 'venda',
                         'manual' => 'informado no painel',
-                        default => 'não está no KYC nem no cadastro',
+                        default => 'fora do KYC e do cadastro',
                     })
                     ->searchable(),
                 TextColumn::make('capture_status')
@@ -97,16 +97,11 @@ class MerchantStoreResource extends Resource
                         $record->capture_status === 'failed' => 'danger',
                         default => 'info',
                     })
-                    ->description(fn (MerchantStore $record): ?string => collect((array) $record->captures)
-                        ->map(fn (array $capture): string => MerchantStore::SHORT[$capture['kind']] ?? $capture['kind'])
-                        ->implode(' · ') ?: null)
+                    ->description(fn (MerchantStore $record): ?string => collect([
+                        collect((array) $record->captures)->map(fn (array $capture): string => MerchantStore::SHORT[$capture['kind']] ?? $capture['kind'])->implode(' · '),
+                        $record->captured_at?->diffForHumans(),
+                    ])->filter()->implode(' · ') ?: null)
                     ->tooltip(fn (MerchantStore $record): ?string => $record->capture_error),
-                TextColumn::make('captured_at')
-                    ->label('Capturado')
-                    ->since()
-                    ->dateTimeTooltip('d/m/Y H:i', 'America/Sao_Paulo')
-                    ->placeholder('—')
-                    ->sortable(),
                 TextColumn::make('open_disputes_count')
                     ->label('MEDs abertos')
                     ->badge()
@@ -135,9 +130,10 @@ class MerchantStoreResource extends Resource
                         ->visible(fn (MerchantStore $record): bool => $record->capture($kind) !== null))
                     ->values()
                     ->all())
-                    ->label('Ver')
+                    ->label('Ver políticas')
                     ->icon('heroicon-o-eye')
-                    ->button()
+                    ->iconButton()
+                    ->tooltip('Ver as políticas capturadas')
                     ->color('gray')
                     ->visible(fn (MerchantStore $record): bool => (array) $record->captures !== []),
                 self::websiteAction(),
@@ -162,9 +158,10 @@ class MerchantStoreResource extends Resource
     {
         return Action::make('website')
             ->label(fn (MerchantStore $record): string => $record->website ? 'Editar site' : 'Informar site')
-            ->icon('heroicon-o-pencil-square')
+            ->icon(fn (MerchantStore $record): string => $record->website ? 'heroicon-o-pencil-square' : 'heroicon-o-plus')
             ->color(fn (MerchantStore $record): string => $record->website ? 'gray' : 'primary')
             ->button()
+            ->size('sm')
             ->modalHeading(fn (MerchantStore $record): string => "Site da loja - {$record->name}")
             ->modalDescription('A captura abre o site, acha as páginas de entrega, termos e trocas e guarda cada uma em PDF nos MEDs da loja. Informe a página específica só quando a busca não achar.')
             ->modalSubmitActionLabel('Salvar e capturar')

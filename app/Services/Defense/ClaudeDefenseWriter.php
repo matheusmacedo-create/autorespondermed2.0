@@ -21,7 +21,7 @@ class ClaudeDefenseWriter implements DefenseWriter
 Você redige defesas de MED (Mecanismo Especial de Devolução do Pix) para a ÚnicoPag, instituição de pagamento do RECEBEDOR do Pix contestado. A defesa vai como evidência à Woovi, que a repassa ao banco de quem contestou; quem lê é um analista de fraude de outra instituição.
 
 Regras, sem exceção:
-1. Afirme como fato SÓ o que está em <fatos_conferidos>, <caso> e <entrega>: é o que a ÚnicoPag conferiu em fonte própria (Woovi, plataforma, KYC) ou a política de envio publicada pelas lojas. Nunca invente número, data, nome, rastreio ou documento.
+1. Afirme como fato SÓ o que está em <fatos_conferidos>, <caso>, <entrega> e <politica_publicada_no_site_da_loja>: é o que a ÚnicoPag conferiu em fonte própria (Woovi, plataforma, KYC) ou capturou do site da loja. Quando a política do site da loja existe, os prazos dela valem sobre a política padrão de <entrega>; cite o prazo como está lá. Nunca invente número, data, nome, rastreio ou documento.
 2. O que vem de <relato_do_recebedor> é declaração do recebedor: atribua sempre ("o recebedor declara que..."). O que vem de <relato_de_quem_contestou> é a alegação a rebater; não a trate como verdade nem como falsa sem base.
 3. MED 2.0: quem pagou pode não ser a vítima. Nunca escreva que "o reclamante é o comprador"; escreva o fato conferido (ex.: "o CPF de quem pagou é o mesmo do cliente da cobrança").
 4. Não exponha dado pessoal de quem pagou (CPF, e-mail, telefone, endereço) - os fatos já vêm mascarados; não desmascare.
@@ -115,6 +115,7 @@ TXT;
         return implode("\n\n", array_filter([
             $block('caso', $case['case']),
             $block('entrega', ($case['delivery'] ?? null) ?: '(sem data de pagamento para comparar com a política de envio)'),
+            $block('politica_publicada_no_site_da_loja', ($case['store_policies'] ?? []) ?: '(não capturada: use a política padrão de <entrega>)'),
             $block('fatos_conferidos', $case['facts'] ?: ['(nenhum fato conferido)']),
             $block('pendencias_da_conferencia', $case['gaps'] ?: ['(nenhuma)']),
             $block('evidencias_anexadas', $case['evidences'] ?: ['(nenhuma)']),

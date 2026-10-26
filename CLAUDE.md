@@ -60,6 +60,13 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   guardado em `disputes.merchant`/`merchant_account_id`); aviso, carta, link e IA usam `Dispute::seller()`, nunca
   o contato da conta direto. Cadastro e KYC usam `Dispute::platformAccountId()`.
 
+## Lojas (políticas do site)
+- `MerchantStoreAction`: no fim da montagem do dossiê acha o site do lojista (cadastro do unico-api
+  `register.website`, depois KYC `KYC_STORE_ENDPOINT`, depois venda), captura entrega/termos/trocas em PDF uma
+  vez por loja (`CaptureMerchantStore`, Chromium em `storage/browser`, doc/DEPLOY_FORGE.md 5.1), anexa como
+  evidência `store_policy` e a IA lê o texto. Recaptura depois de `MED_LOJAS_RECAPTURAR_DIAS`. Tela "Lojas" no
+  painel para corrigir a URL. O script bloqueia rede interna (a URL vem de cadastro de terceiro).
+
 ## Defesa com IA
 - Com `MED_IA_AUTOMATICA`, o fim da montagem do dossiê já enfileira o rascunho (uma vez por caso).
 - Carta no formato da Compliance (`config('med.defesa')`): cabeçalho (requerente mascarado, data, valor, produto),

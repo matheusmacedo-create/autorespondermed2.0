@@ -7,6 +7,7 @@ use App\Enums\DossierSource;
 use App\Enums\EvidenceKind;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
+use App\Models\MerchantStore;
 use App\Services\Defense\DefenseWriter;
 use App\Services\Defense\DefenseWriterException;
 use App\Services\DisputeEventRecorder;
@@ -101,6 +102,7 @@ class GenerateAiDefenseAction
                 'rastreio_informado_pelo_recebedor' => data_get($dispute->seller_details, 'tracking_code'),
             ]),
             'delivery' => $this->delivery($dispute),
+            'store_policies' => $this->storePolicies($dispute),
             'facts' => MatchDossierAction::facts($dispute->dossier_match),
             'gaps' => $checks
                 ->filter(fn ($check): bool => is_array($check) && ($check['status'] ?? null) !== MatchDossierAction::OK)
@@ -116,6 +118,30 @@ class GenerateAiDefenseAction
             'analyst_notes' => $dispute->analyst_notes,
             'claim' => $this->claim($dispute),
         ];
+    }
+
+    /**
+     * Texto das políticas publicadas no site da loja (capturadas pela ÚnicoPag). É
+     * conteúdo de terceiro: vai como dado, nunca como instrução.
+     *
+     * @return array<string, string>
+     */
+    private function storePolicies(Dispute $dispute): array
+    {
+        $store = filled($dispute->merchant_account_id)
+            ? MerchantStore::query()->where('merchant_account_id', $dispute->merchant_account_id)->first()
+            : null;
+
+        if (! $store?->isFresh()) {
+            return [];
+        }
+
+        return collect((array) $store->captures)
+            ->filter(fn (array $capture): bool => in_array($capture['kind'], ['shipping', 'exchange'], true) && filled($capture['text'] ?? null))
+            ->mapWithKeys(fn (array $capture): array => [
+                (MerchantStore::KINDS[$capture['kind']] ?? $capture['kind']).' ('.$capture['url'].')' => mb_substr((string) $capture['text'], 0, 5000),
+            ])
+            ->all();
     }
 
     /**

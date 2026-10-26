@@ -37,6 +37,7 @@ enum DisputeEventType: string
     case AI_DEFENSE_FAILED = 'ai_defense_failed';
     case DEFENSE_EDITED = 'defense_edited';
     case MERCHANT_IDENTIFIED = 'merchant_identified';
+    case STORE_POLICY_ATTACHED = 'store_policy_attached';
 
     public function label(): string
     {
@@ -71,6 +72,7 @@ enum DisputeEventType: string
             self::AI_DEFENSE_FAILED => 'Defesa com IA não gerada',
             self::DEFENSE_EDITED => 'Texto da defesa editado',
             self::MERCHANT_IDENTIFIED => 'Lojista identificado',
+            self::STORE_POLICY_ATTACHED => 'Política da loja anexada',
         };
     }
 

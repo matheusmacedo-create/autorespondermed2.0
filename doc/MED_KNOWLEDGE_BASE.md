@@ -395,6 +395,10 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   indeferimento. Anexos usados: comprovante de pagamento da ÚnicoPag e print da política de entrega do site.
   Virou o formato da carta e o estilo da IA. Os MEDs abertos são quase todos "não recebi": sem esse argumento a
   IA recomendava "não defender" por falta de prova de entrega.
+- **Políticas do site da loja** (pedido da operação): print das páginas de entrega, termos e trocas guardado por
+  loja e reaproveitado; a IA usa o prazo publicado pela própria loja. O site vem do cadastro da plataforma (rota
+  de cadastro, ainda 401 com a chave `med_`), do KYC (`OnboardingBusinessProfile.website`, rota de leitura a
+  criar no KYC) ou da venda; sem nenhum, o analista preenche em "Lojas".
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

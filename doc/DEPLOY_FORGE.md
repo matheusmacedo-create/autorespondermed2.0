@@ -90,6 +90,22 @@ O webhook da Woovi só grava a chamada e enfileira; quem processa é o worker. S
 - Diretório: `/home/forge/med.unicopag.com.br/current`
 - Usuário: `forge`, 1 processo.
 
+## 5.1 Navegador para o print das políticas das lojas (uma vez por servidor)
+
+O MED abre o site de cada loja e guarda em PDF as páginas de entrega, termos e trocas
+(`scripts/capture-store.cjs`). Precisa de Node (o Forge já instala) e do Chromium sem tela em
+`storage/browser`, que é compartilhado entre os releases:
+
+```bash
+cd /home/forge/med.unicopag.com.br/current/storage && mkdir -p browser && cd browser
+npm init -y && npm i playwright-core@1.49.1
+PLAYWRIGHT_BROWSERS_PATH=$PWD/ms-playwright npx -y playwright@1.49.1 install chromium-headless-shell
+```
+
+As bibliotecas de sistema do Chromium pedem root: recipe do Forge "MED - dependências do Chromium" (usuário
+`root`), que roda `npx playwright@1.49.1 install-deps chromium-headless-shell` - só fontes e libs gráficas.
+Sem isso a captura fica desligada sozinha (`NodeStoreCapturer::isAvailable()`) e o resto do MED segue.
+
 ## 6. Agendador (Server → Scheduler)
 
 - Comando: `php8.4 /home/forge/med.unicopag.com.br/current/artisan schedule:run`

@@ -10,6 +10,7 @@ use App\Enums\DossierSource;
 use App\Enums\SourceStatus;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
+use App\Models\MerchantStore;
 use App\Services\SellerNotifier;
 use App\Support\TaxId;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -227,6 +228,21 @@ class DisputeInfolist
                                     ->helperText(fn (Dispute $record): string => $record->merchant
                                         ? 'Pela venda na plataforma'.($record->merchant_account_id ? " (conta {$record->merchant_account_id})" : '').' · conta Woovi: '.$record->wooviAccount->name
                                         : 'Venda não localizada na plataforma pelo correlationID da cobrança. Conta Woovi: '.$record->wooviAccount->name),
+                                TextEntry::make('store_website')
+                                    ->label('Site da loja')
+                                    ->state(fn (Dispute $record): ?string => $record->merchantStore()?->website)
+                                    ->url(fn (Dispute $record): ?string => $record->merchantStore()?->website)
+                                    ->openUrlInNewTab()
+                                    ->color('primary')
+                                    ->helperText(fn (Dispute $record): ?string => ($store = $record->merchantStore()) === null ? null : match ($store->capture_status) {
+                                        'ok', 'partial' => 'Políticas capturadas em '.$store->captured_at?->timezone('America/Sao_Paulo')->format('d/m/Y H:i').': '
+                                            .collect((array) $store->captures)->map(fn (array $c): string => MerchantStore::KINDS[$c['kind']] ?? $c['kind'])->implode(', ').'.',
+                                        'failed' => 'Captura falhou: '.$store->capture_error,
+                                        'no_website' => 'Sem site: preencha em Lojas.',
+                                        default => 'Captura das políticas pendente.',
+                                    })
+                                    ->placeholder('Sem site: preencha em Lojas.')
+                                    ->visible(fn (Dispute $record): bool => filled($record->merchant_account_id)),
                                 TextEntry::make('merchant_kyc')->label('KYC')->state(fn (Dispute $record): ?string => data_get($record->merchant, 'kyc_status'))->badge()->color('gray')->visible(fn (Dispute $record): bool => filled(data_get($record->merchant, 'kyc_status'))),
                                 TextEntry::make('seller_tax_id')->label('CPF/CNPJ')->state(fn (Dispute $record): ?string => TaxId::format($record->seller()['tax_id']))->placeholder('—'),
                                 TextEntry::make('seller_email')->label('E-mail')->state(fn (Dispute $record): ?string => $record->seller()['email'])->copyable()->placeholder('sem e-mail'),

@@ -112,6 +112,10 @@ return [
     'kyc' => [
         'base_url' => env('KYC_BASE_URL', 'https://kyc.unicopag.com.br'),
         'timeout' => (int) env('KYC_TIMEOUT', 5),
+        // Site da loja pelo KYC (rota só de leitura, chave própria do MED). Vazio desliga.
+        // Placeholder: {account_id}.
+        'store_endpoint' => env('KYC_STORE_ENDPOINT'),
+        'med_key' => env('KYC_MED_API_KEY'),
     ],
 
     // Kapso - WhatsApp oficial da ÚnicoPag (o mesmo número e a mesma chave de projeto do

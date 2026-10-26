@@ -22,6 +22,9 @@ class Dispute extends Model
     /** @use HasFactory<DisputeFactory> */
     use HasFactory;
 
+    /** Loja do lojista, lida uma vez por instância ({@see merchantStore()}). */
+    private ?MerchantStore $merchantStore = null;
+
     protected $fillable = [
         'woovi_account_id',
         'end_to_end_id',
@@ -163,6 +166,19 @@ class Dispute extends Model
             ->map(fn (array $item): string => trim((string) $item['name']).((int) ($item['quantity'] ?? 1) > 1 ? ' (x'.(int) $item['quantity'].')' : ''));
 
         return $items->isEmpty() ? null : mb_substr($items->implode('; '), 0, 300);
+    }
+
+    public function merchantStore(): ?MerchantStore
+    {
+        if (blank($this->merchant_account_id)) {
+            return null;
+        }
+
+        if ($this->merchantStore?->merchant_account_id !== $this->merchant_account_id) {
+            $this->merchantStore = MerchantStore::query()->where('merchant_account_id', $this->merchant_account_id)->first();
+        }
+
+        return $this->merchantStore;
     }
 
     public function wooviAccount(): BelongsTo

@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Models\User;
 use App\Services\Defense\ClaudeDefenseWriter;
 use App\Services\Defense\DefenseWriter;
+use App\Services\Stores\NodeStoreCapturer;
+use App\Services\Stores\StoreCapturer;
 use App\Support\Permissions;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -17,6 +19,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(DefenseWriter::class, ClaudeDefenseWriter::class);
+        $this->app->bind(StoreCapturer::class, NodeStoreCapturer::class);
     }
 
     /**

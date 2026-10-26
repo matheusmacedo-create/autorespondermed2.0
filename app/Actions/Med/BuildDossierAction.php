@@ -47,6 +47,7 @@ class BuildDossierAction
         private readonly DisputeEventRecorder $events,
         private readonly SellerNotifier $notifier,
         private readonly DefenseWriter $defenseWriter,
+        private readonly MerchantStoreAction $stores,
     ) {}
 
     /**
@@ -249,6 +250,10 @@ class BuildDossierAction
         if ($merchantChanged && $dispute->seller_notified_at === null && $dispute->status === DisputeStatus::PENDING_SELLER) {
             rescue(fn () => $this->notifier->disputeOpened($dispute->refresh()), report: true);
         }
+
+        // Loja do lojista: as políticas do site entram como evidência (captura feita
+        // uma vez por loja e reaproveitada) antes do rascunho da IA, que as lê.
+        rescue(fn () => $this->stores->forDispute($dispute), report: true);
 
         // Defesa já preparada quando o analista abre a ficha: rascunho da IA com o
         // dossiê conferido, uma vez por caso (refazer é pelo botão da ficha).

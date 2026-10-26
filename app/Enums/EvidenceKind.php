@@ -18,6 +18,7 @@ enum EvidenceKind: string
     case DEFENSE_LETTER = 'defense_letter';
     case PIX_RECEIPT = 'pix_receipt';
     case SALE_RECORD = 'sale_record';
+    case STORE_POLICY = 'store_policy';
     case OTHER = 'other';
 
     public function label(): string
@@ -32,6 +33,7 @@ enum EvidenceKind: string
             self::DEFENSE_LETTER => 'Carta de defesa do recebedor',
             self::PIX_RECEIPT => 'Comprovante oficial do Pix recebido (Woovi)',
             self::SALE_RECORD => 'Registro da venda: cobrança Pix criada pelo recebedor e paga pelo pagador',
+            self::STORE_POLICY => 'Política publicada no site da loja (entrega, termos, trocas)',
             self::OTHER => 'Outro documento',
         };
     }
@@ -41,7 +43,7 @@ enum EvidenceKind: string
      */
     public function isSystemGenerated(): bool
     {
-        return in_array($this, [self::DEFENSE_LETTER, self::PIX_RECEIPT, self::SALE_RECORD], true);
+        return in_array($this, [self::DEFENSE_LETTER, self::PIX_RECEIPT, self::SALE_RECORD, self::STORE_POLICY], true);
     }
 
     /**

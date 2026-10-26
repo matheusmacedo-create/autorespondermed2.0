@@ -39,6 +39,17 @@ return [
     | para o rastreio e 10 a 15 dias úteis para a entrega): a IA compara o tempo
     | decorrido com ela antes de recomendar.
     */
+    'lojas' => [
+        // Print das políticas (entrega, termos, trocas) do site de cada loja, uma vez
+        // por loja; recaptura depois de N dias. Requer Node e o Chromium em
+        // storage/browser (doc/DEPLOY_FORGE.md).
+        'captura_habilitada' => (bool) env('MED_LOJAS_CAPTURA', true),
+        'recapturar_dias' => (int) env('MED_LOJAS_RECAPTURAR_DIAS', 30),
+        'node' => env('MED_NODE_BINARY', 'node'),
+        'browser_dir' => env('MED_BROWSER_DIR', storage_path('browser')),
+        'timeout_segundos' => (int) env('MED_LOJAS_TIMEOUT', 180),
+    ],
+
     'defesa' => [
         'assinatura' => env('MED_DEFESA_ASSINATURA', 'Compliance Único Pag'),
         'whatsapp' => env('MED_DEFESA_WHATSAPP', '(11) 8890-1256'),

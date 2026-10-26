@@ -14,6 +14,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class DisputeResource extends Resource
 {
@@ -31,9 +32,20 @@ class DisputeResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'end_to_end_id';
 
+    /**
+     * Só a janela de trabalho (`med.janela_dias`): caso mais antigo não aparece em
+     * lugar nenhum do painel.
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->inWindow();
+    }
+
     public static function getNavigationBadge(): ?string
     {
-        $count = Dispute::query()->where('status', DisputeStatus::SELLER_SUBMITTED->value)->count();
+        $count = Dispute::query()->inWindow()
+            ->whereIn('status', [DisputeStatus::PENDING_SELLER->value, DisputeStatus::SELLER_SUBMITTED->value])
+            ->count();
 
         return $count > 0 ? (string) $count : null;
     }
@@ -45,7 +57,7 @@ class DisputeResource extends Resource
 
     public static function getNavigationBadgeTooltip(): ?string
     {
-        return 'Defesas recebidas esperando análise';
+        return 'MEDs abertos esperando defesa';
     }
 
     public static function infolist(Schema $schema): Schema

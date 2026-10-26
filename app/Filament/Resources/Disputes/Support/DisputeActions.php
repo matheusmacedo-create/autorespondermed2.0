@@ -70,8 +70,9 @@ class DisputeActions
             ->icon('heroicon-o-arrow-uturn-left')
             ->color('gray')
             ->modalHeading('Pedir complemento ao seller')
-            ->modalDescription('O caso volta para "Aguardando seller", o link reabre e o seller recebe esta mensagem por e-mail.')
-            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+            ->modalDescription('O caso volta para "Aberto", o link reabre e o lojista recebe esta mensagem por e-mail.')
+            ->visible(fn (ViewRecord $livewire): bool => SellerNotifier::enabled()
+                && Permissions::allows(Permissions::REVIEW_DISPUTES)
                 && in_array($livewire->getRecord()->status, [DisputeStatus::SELLER_SUBMITTED, DisputeStatus::PENDING_SELLER], true))
             ->schema([
                 Textarea::make('message')
@@ -196,7 +197,8 @@ class DisputeActions
             ->label('Reenviar aviso ao seller')
             ->icon('heroicon-o-envelope')
             ->requiresConfirmation()
-            ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::REVIEW_DISPUTES)
+            ->visible(fn (ViewRecord $livewire): bool => SellerNotifier::enabled()
+                && Permissions::allows(Permissions::REVIEW_DISPUTES)
                 && $livewire->getRecord()->status === DisputeStatus::PENDING_SELLER)
             ->action(function (ViewRecord $livewire, SellerNotifier $notifier): void {
                 $dispute = $livewire->getRecord();

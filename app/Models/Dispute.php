@@ -131,6 +131,16 @@ class Dispute extends Model
         ];
     }
 
+    /**
+     * Nome do lojista para a tela: o nome fantasia da venda, depois a razão social
+     * da venda. Null quando a venda não identificou o lojista (na conta mestre o
+     * nome da conta Woovi seria a própria ÚnicoPag).
+     */
+    public function merchantName(): ?string
+    {
+        return data_get($this->merchant, 'trade_name') ?: data_get($this->merchant, 'name') ?: null;
+    }
+
     public function wooviAccount(): BelongsTo
     {
         return $this->belongsTo(WooviAccount::class);
@@ -181,6 +191,25 @@ class Dispute extends Model
     public function scopeOpen(Builder $query): void
     {
         $query->whereIn('status', DisputeStatus::openValues());
+    }
+
+    /**
+     * MEDs abertos dentro da janela de trabalho (`med.janela_dias`; 0 = todos).
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeInWindow(Builder $query): void
+    {
+        if (($start = self::windowStart()) !== null) {
+            $query->where('opened_at', '>=', $start);
+        }
+    }
+
+    public static function windowStart(): ?Carbon
+    {
+        $days = (int) config('med.janela_dias');
+
+        return $days > 0 ? now()->subDays($days)->startOfDay() : null;
     }
 
     public function isTokenExpired(): bool

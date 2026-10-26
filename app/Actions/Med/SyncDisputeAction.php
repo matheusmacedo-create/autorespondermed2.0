@@ -36,10 +36,8 @@ class SyncDisputeAction
 
         $payload['endToEndId'] ??= $dispute->end_to_end_id;
 
-        $dispute = $this->ingest->handle($dispute->wooviAccount, $payload, 'sync');
-
-        $this->events->record(DisputeEventType::SYNCED, $dispute, 'Caso relido na Woovi.', ['woovi_status' => $dispute->woovi_status]);
-
-        return $dispute;
+        // Releitura sem novidade não vira evento (seria um por hora na linha do tempo):
+        // o que mudou a ingestão já registra (status na Woovi, encerramento).
+        return $this->ingest->handle($dispute->wooviAccount, $payload, 'sync');
     }
 }

@@ -7,8 +7,10 @@ use App\Enums\DisputeStatus;
 use App\Enums\DossierSource;
 use App\Enums\EvidenceKind;
 use App\Enums\SourceStatus;
+use App\Jobs\GenerateAiDefense;
 use App\Models\Dispute;
 use App\Models\DisputeSource;
+use App\Services\Defense\DefenseWriter;
 use App\Services\DisputeEventRecorder;
 use App\Services\Kyc\KycClient;
 use App\Services\SellerNotifier;
@@ -44,6 +46,7 @@ class BuildDossierAction
         private readonly MatchDossierAction $match,
         private readonly DisputeEventRecorder $events,
         private readonly SellerNotifier $notifier,
+        private readonly DefenseWriter $defenseWriter,
     ) {}
 
     /**
@@ -245,6 +248,15 @@ class BuildDossierAction
         // contato): o aviso sai para o lojista da venda.
         if ($merchantChanged && $dispute->seller_notified_at === null && $dispute->status === DisputeStatus::PENDING_SELLER) {
             rescue(fn () => $this->notifier->disputeOpened($dispute->refresh()), report: true);
+        }
+
+        // Defesa já preparada quando o analista abre a ficha: rascunho da IA com o
+        // dossiê conferido, uma vez por caso (refazer é pelo botão da ficha).
+        if (config('med.ia_automatica') && $dispute->ai_defense === null
+            && $dispute->status->canSendToWoovi() && $this->defenseWriter->isConfigured()) {
+            rescue(function () use ($dispute): void {
+                GenerateAiDefense::dispatch($dispute->id);
+            }, report: true);
         }
 
         return $dispute;

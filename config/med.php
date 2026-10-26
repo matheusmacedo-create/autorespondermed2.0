@@ -11,6 +11,27 @@ return [
     'prazo_resposta_horas' => (int) env('MED_PRAZO_RESPOSTA_HORAS', 72),
 
     /*
+    | Janela de trabalho: a fila, o painel e a sincronização olham só os MEDs
+    | abertos nos últimos N dias (`Dispute::inWindow()`); `med:podar` apaga o
+    | resto. 0 = sem janela.
+    */
+    'janela_dias' => (int) env('MED_JANELA_DIAS', 14),
+
+    /*
+    | Aviso ao lojista (e-mail e WhatsApp). Desligado até a operação estar
+    | organizada: o caso é montado e a defesa preparada sem falar com o lojista,
+    | e o link da ficha pode ser mandado à mão. Ligar avisa, na próxima montagem
+    | do dossiê, quem ainda não foi avisado.
+    */
+    'aviso_lojista' => (bool) env('MED_AVISO_LOJISTA', false),
+
+    /*
+    | Defesa com IA preparada sozinha depois da montagem do dossiê (caso aberto,
+    | sem rascunho ainda, com a chave da Anthropic). Nada vai à Woovi por isso.
+    */
+    'ia_automatica' => (bool) env('MED_IA_AUTOMATICA', true),
+
+    /*
     | Fila de análise: com quantas horas restantes o prazo fica amarelo e
     | vermelho na fila e no painel.
     */

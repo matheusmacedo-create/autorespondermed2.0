@@ -27,6 +27,7 @@ class DeadlineWarningCommand extends Command
 
         $dueSoon = Dispute::query()
             ->whereIn('status', [DisputeStatus::PENDING_SELLER->value, DisputeStatus::SELLER_SUBMITTED->value])
+            ->inWindow()
             ->whereNotNull('respond_by')
             ->where('respond_by', '<=', $limit)
             ->with('wooviAccount')
@@ -38,7 +39,7 @@ class DeadlineWarningCommand extends Command
         foreach ($dueSoon as $dispute) {
             $alreadyWarned = $dispute->events()->where('event', DisputeEventType::DEADLINE_WARNING->value)->exists();
 
-            if ($alreadyWarned || $dispute->status !== DisputeStatus::PENDING_SELLER || $dispute->respond_by->isPast()) {
+            if (! SellerNotifier::enabled() || $alreadyWarned || $dispute->status !== DisputeStatus::PENDING_SELLER || $dispute->respond_by->isPast()) {
                 continue;
             }
 

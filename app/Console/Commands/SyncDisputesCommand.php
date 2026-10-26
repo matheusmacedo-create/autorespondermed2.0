@@ -22,7 +22,7 @@ class SyncDisputesCommand extends Command
 
     protected $signature = 'med:sincronizar
         {--conta= : ID da conta Woovi (woovi_accounts.id); sem ela, todas as ativas}
-        {--dias=30 : Janela da varredura de disputas novas}';
+        {--dias= : Janela da varredura de disputas novas (padrão: MED_JANELA_DIAS, ou 30 sem janela)}';
 
     protected $description = 'Busca MEDs novos e atualiza os abertos direto na Woovi';
 
@@ -34,10 +34,11 @@ class SyncDisputesCommand extends Command
             ->get();
 
         $failures = 0;
+        $days = (int) ($this->option('dias') ?: (config('med.janela_dias') ?: 30));
 
         foreach ($accounts as $account) {
             try {
-                $result = $syncAccount->handle($account, (int) $this->option('dias'));
+                $result = $syncAccount->handle($account, $days);
                 $this->line("{$account->name}: {$result['seen']} disputa(s), {$result['created']} nova(s).");
             } catch (Throwable $e) {
                 $failures++;
@@ -49,6 +50,7 @@ class SyncDisputesCommand extends Command
         // status final de caso antigo, fora da janela).
         $open = Dispute::query()
             ->open()
+            ->inWindow()
             ->whereIn('woovi_account_id', $accounts->pluck('id'))
             ->with('wooviAccount')
             ->get();

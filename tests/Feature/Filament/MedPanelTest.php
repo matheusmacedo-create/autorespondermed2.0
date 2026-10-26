@@ -38,11 +38,12 @@ class MedPanelTest extends TestCase
         Dispute::factory()->submitted()->count(2)->create();
         Dispute::factory()->create();
 
-        $this->get('/admin')->assertOk()->assertSee('Defesas para analisar');
+        $this->get('/admin')->assertOk()->assertSee('MEDs para defender');
 
+        // Primeira aba: tudo que ainda pede defesa (aberto ou com resposta do lojista).
         Livewire::test(ListDisputes::class)
             ->assertOk()
-            ->assertCountTableRecords(2);
+            ->assertCountTableRecords(3);
     }
 
     public function test_case_page_shows_the_defense_evidence_and_timeline(): void
@@ -53,7 +54,7 @@ class MedPanelTest extends TestCase
 
         $this->get("/admin/disputes/{$dispute->id}")
             ->assertOk()
-            ->assertSee('MED R$ 150,00 - '.$dispute->wooviAccount->name)
+            ->assertSee('MED R$ 150,00 - lojista não identificado')
             ->assertSee('entreguei em mãos')
             ->assertSee('nota-fiscal.pdf')
             ->assertSee('Seller enviou a defesa com 1 arquivo(s).')

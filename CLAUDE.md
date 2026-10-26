@@ -20,6 +20,11 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   da Woovi, cria em cada uma um aplicativo só com os escopos do MED e já liga webhooks e MEDs. Conta que já
   existe nunca ganha chave nova (o `POST /partner/application` não é idempotente); conta ativa sem CPF/CNPJ
   trava a criação; nunca há aplicativo "sem escopos" (acesso total).
+- Janela de trabalho (`MED_JANELA_DIAS`, 14): fila, painel, sincronização e `med:montar-dossie --abertos` só
+  veem os MEDs abertos nesse período (`Dispute::inWindow()`). `med:podar --confirmar [--conta=ID]` apaga os de
+  fora e as contas de demonstração; caso já enviado à Woovi nunca sai.
+- Aviso ao lojista desligado (`MED_AVISO_LOJISTA=false`): nem e-mail nem WhatsApp até a operação estar
+  organizada; `SellerNotifier::enabled()` corta todos os caminhos e esconde as ações de aviso da ficha.
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 
@@ -56,6 +61,7 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   o contato da conta direto. Cadastro e KYC usam `Dispute::platformAccountId()`.
 
 ## Defesa com IA
+- Com `MED_IA_AUTOMATICA`, o fim da montagem do dossiê já enfileira o rascunho (uma vez por caso).
 - "Gerar defesa com IA" na ficha (job `GenerateAiDefense`, aviso no sininho): `GenerateAiDefenseAction` monta o caso
   só com fatos ok da conferência, pendências, evidências, relato do seller e - com a feature "MED API" - o relato
   de quem contestou (`/funds-recovery/{id}/infraction-reports`); `ClaudeDefenseWriter` (SDK oficial, JSON Schema,

@@ -379,8 +379,23 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   parceirias"). Por isso a conta mestre é cadastrada como uma `woovi_account` e `WOOVI_PARTNER_IMPORT=false`
   desliga a importação. Cada caso ainda não sabe de qual seller é: ligar pela venda (rota de venda do unico-api).
 
+## 11. Operação na conta mestre (26/10/2026)
+
+- **Rota de venda conferida em produção** (unico-api `vps1.unicopag.com.br`, integração `med`): 3 MEDs abertos
+  testados; 2 acharam a venda pelo `correlation_id` (`matched_by=correlation_id`, `amount_total` igual ao valor
+  do Pix) e 1 voltou 404. As duas vendas achadas vieram com `payment_status=refunded` - confirmar com o unico-api
+  se é o bloqueio cautelar do MED aparecendo como estorno.
+- **A chave `med_` não abre o cadastro** (`/api/kyc-panel/accounts/{id}/register` responde 401): a fonte
+  "Cadastro" fica falha até o unico-api liberar essa rota para a integração `med`.
+- **Comprovante oficial da Woovi** responde 401 "missing the required scope" no AppID da conta mestre: falta o
+  escopo do `receipt/pix-in` no aplicativo.
+- Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
+  mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
+
 ## Histórico de atualizações
 
+- **2026-10-26** - rota de venda no ar (`vps1.unicopag.com.br/api/med/sales/lookup`, chave `med_`); janela de
+  14 dias, `med:podar`, aviso ao lojista desligado, defesa com IA automática e fila pelo lojista (seção 11).
 - **2026-10-25** - lojista do caso pela venda (`seller` + `account_id`), busca sem conta, aviso ao lojista da venda (8.1).
 - **2026-10-25** - defesa com IA (seção 10); MEDs caem na conta mestre; `WOOVI_PARTNER_IMPORT`.
 - **2026-10-22** - importação automática das subcontas pela conta mestre (`med:importar-contas`, API de

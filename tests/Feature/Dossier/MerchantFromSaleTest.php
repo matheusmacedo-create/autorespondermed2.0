@@ -9,6 +9,7 @@ use App\Enums\DossierSource;
 use App\Enums\SourceStatus;
 use App\Mail\DisputeOpenedMail;
 use App\Models\Dispute;
+use App\Services\Defense\DefenseWriter;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -102,5 +103,48 @@ class MerchantFromSaleTest extends DossierTestCase
         $this->assertNull($dispute->merchant);
         $this->assertSame('UNICO PAG LTDA (conta mestre)', $dispute->seller()['name']);
         Mail::assertNotSent(DisputeOpenedMail::class);
+    }
+
+    public function test_merchant_is_not_notified_while_notices_are_off(): void
+    {
+        config(['med.aviso_lojista' => false]);
+        Mail::fake();
+
+        $dispute = $this->receive();
+
+        $this->assertSame('4321', $dispute->merchant_account_id);
+        Mail::assertNothingSent();
+        $this->assertNull($dispute->seller_notified_at);
+        $this->assertDatabaseMissing('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::SELLER_NOTIFIED->value]);
+    }
+
+    public function test_defense_is_prepared_by_the_ai_after_the_dossier(): void
+    {
+        config(['med.ia_automatica' => true]);
+        $this->app->instance(DefenseWriter::class, new class implements DefenseWriter
+        {
+            public int $calls = 0;
+
+            public function write(array $case): array
+            {
+                $this->calls++;
+
+                return ['draft' => ['narrative' => 'Defesa pronta.', 'arguments' => [], 'weaknesses' => [], 'missing_evidence' => [], 'recommendation' => 'defender', 'recommendation_reason' => 'Venda conferida.'], 'model' => 'fake', 'usage' => []];
+            }
+
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+        });
+
+        $dispute = $this->receive();
+
+        $this->assertSame('Defesa pronta.', $dispute->defense_text);
+        $this->assertSame('defender', $dispute->ai_defense['recommendation']);
+
+        // Remontar o dossiê não refaz o rascunho (refazer é pelo botão da ficha).
+        app(BuildDossierAction::class)->handle($dispute, refresh: true);
+        $this->assertSame(1, app(DefenseWriter::class)->calls);
     }
 }

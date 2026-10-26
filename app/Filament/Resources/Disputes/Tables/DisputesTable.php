@@ -9,6 +9,7 @@ use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class DisputesTable
 {
@@ -17,11 +18,15 @@ class DisputesTable
         return $table
             ->modifyQueryUsing(fn ($query) => $query->with('wooviAccount')->withCount('evidences'))
             ->columns([
-                TextColumn::make('wooviAccount.name')
-                    ->label('Seller')
-                    ->description(fn (Dispute $record): ?string => TaxId::format($record->wooviAccount?->tax_id))
-                    ->searchable()
-                    ->sortable(),
+                TextColumn::make('merchant_name')
+                    ->label('Lojista')
+                    ->state(fn (Dispute $record): string => $record->merchantName() ?? 'Não identificado')
+                    ->description(fn (Dispute $record): string => $record->merchant
+                        ? (TaxId::format(data_get($record->merchant, 'tax_id')) ?? 'conta '.$record->merchant_account_id)
+                        : 'Venda não localizada na plataforma')
+                    ->color(fn (Dispute $record): ?string => $record->merchant ? null : 'danger')
+                    ->weight(fn (Dispute $record): ?string => $record->merchant ? 'medium' : null)
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('merchant', 'like', '%'.$search.'%')),
                 TextColumn::make('value')
                     ->label('Valor')
                     ->formatStateUsing(fn (Dispute $record): string => $record->formattedValue())
@@ -29,10 +34,13 @@ class DisputesTable
                 TextColumn::make('type')
                     ->label('Tipo')
                     ->badge()
-                    ->color('gray'),
+                    ->color('gray')
+                    ->toggleable(),
                 TextColumn::make('dispute_reason')
-                    ->label('Motivo')
-                    ->limit(30)
+                    ->label('Motivo do pagador')
+                    ->limit(40)
+                    ->tooltip(fn (Dispute $record): ?string => $record->dispute_reason)
+                    ->wrap()
                     ->placeholder('—'),
                 TextColumn::make('status')
                     ->label('Status')
@@ -61,10 +69,31 @@ class DisputesTable
                         default => 'warning',
                     })
                     ->placeholder('—'),
+                TextColumn::make('defense')
+                    ->label('Defesa')
+                    ->badge()
+                    ->state(fn (Dispute $record): ?string => match (true) {
+                        $record->ai_defense !== null => match (data_get($record->ai_defense, 'recommendation')) {
+                            'defender' => 'Defender',
+                            'defender_com_ressalvas' => 'Com ressalvas',
+                            'nao_defender' => 'Não defender',
+                            default => 'Pronta',
+                        },
+                        filled($record->defense_text) => 'Pronta',
+                        default => null,
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'Defender', 'Pronta' => 'success',
+                        'Com ressalvas' => 'warning',
+                        'Não defender' => 'danger',
+                        default => 'gray',
+                    })
+                    ->placeholder('Preparando'),
                 TextColumn::make('evidences_count')
                     ->label('Arquivos')
                     ->badge()
-                    ->color('gray'),
+                    ->color('gray')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('end_to_end_id')
                     ->label('endToEndId')
                     ->searchable()
@@ -76,11 +105,14 @@ class DisputesTable
                     ->dateTime('d/m/Y H:i', 'America/Sao_Paulo')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('wooviAccount.name')
+                    ->label('Conta Woovi')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('status')->label('Status')->options(DisputeStatus::options()),
                 SelectFilter::make('type')->label('Tipo')->options(['MED' => 'MED', 'CHARGEBACK' => 'Chargeback', 'DISPUTE' => 'Disputa']),
-                SelectFilter::make('woovi_account_id')->label('Seller')->relationship('wooviAccount', 'name')->searchable()->preload(),
+                SelectFilter::make('woovi_account_id')->label('Conta Woovi')->relationship('wooviAccount', 'name')->searchable()->preload(),
             ])
             ->defaultSort('respond_by', 'asc')
             ->recordActions([

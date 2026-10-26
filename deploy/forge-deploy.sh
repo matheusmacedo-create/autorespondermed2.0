@@ -24,3 +24,7 @@ $ACTIVATE_RELEASE()
 
 # O worker (daemon queue:work) segura o código antigo em memória até reiniciar.
 $RESTART_QUEUES()
+
+# O worker do MED pode rodar como processo em segundo plano (Server > Background
+# processes), que o $RESTART_QUEUES() não alcança: reinicia pelo sinal do Laravel.
+$FORGE_PHP artisan queue:restart

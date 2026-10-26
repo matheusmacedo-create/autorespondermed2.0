@@ -399,6 +399,14 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   loja e reaproveitado; a IA usa o prazo publicado pela própria loja. O site vem do cadastro da plataforma (rota
   de cadastro, ainda 401 com a chave `med_`), do KYC (`OnboardingBusinessProfile.website`, rota de leitura a
   criar no KYC) ou da venda; sem nenhum, o analista preenche em "Lojas".
+- **Site da loja no KYC** (rota `GET /api/med/stores/{account_id}`, unicopag-kyc#142, chave `MED_API_KEY`):
+  em 26/10/2026, 2 dos 6 lojistas com MED aberto tinham site (AlliPure e Ze dos Mantos); Mega Store, Loja,
+  Alfabonix e 4 Seasons não têm site no KYC nem no cadastro copiado da plataforma - preencher em "Lojas".
+- **Loja de página única** (AlliPure): "Envio e Entrega", "Trocas" e "Termos" no rodapé apontam para a própria
+  página de venda, sem política nenhuma. A captura recusa a página inicial como política; o caso fica sem
+  política da loja e a IA usa a política padrão.
+- **Worker do MED no Forge é processo em segundo plano**: o `$RESTART_QUEUES()` do deploy não o reinicia (ele
+  seguia com o código antigo). O script de deploy tem `artisan queue:restart` explícito.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

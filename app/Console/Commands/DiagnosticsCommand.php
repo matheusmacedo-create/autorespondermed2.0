@@ -179,7 +179,7 @@ class DiagnosticsCommand extends Command
         } else {
             $missing = array_keys(array_filter([
                 'UNICOPAG_API_KEY' => blank(config('services.unicopag.key')),
-                'UNICOPAG_SALE_ENDPOINT (rota ainda a criar no unico-api)' => blank(config('services.unicopag.sale_endpoint')),
+                'UNICOPAG_SALE_ENDPOINT (venda no unico-api)' => blank(config('services.unicopag.sale_endpoint')),
             ]));
 
             $this->check('Dossiê automático', $missing === [] ? 'ok' : 'warn', $missing === []

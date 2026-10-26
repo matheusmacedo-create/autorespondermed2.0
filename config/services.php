@@ -100,8 +100,8 @@ return [
         // Cadastro do seller - rota que já existe (PR #118 do unico-api, KB do KYC 8.22).
         // Vazio desliga. Placeholder: {account_id}.
         'register_endpoint' => env('UNICOPAG_REGISTER_ENDPOINT', '/api/kyc-panel/accounts/{account_id}/register'),
-        // Venda pelo identificador da Woovi - rota que AINDA NÃO EXISTE no unico-api
-        // (contrato em doc/MED_KNOWLEDGE_BASE.md). Vazio desliga. Placeholders:
+        // Venda pelo identificador da Woovi - /api/med/sales/lookup no unico-api
+        // (contrato em doc/MED_KNOWLEDGE_BASE.md 8.1). Vazio desliga. Placeholders:
         // {account_id}, {correlation_id}, {txid}, {end_to_end_id}.
         'sale_endpoint' => env('UNICOPAG_SALE_ENDPOINT'),
     ],

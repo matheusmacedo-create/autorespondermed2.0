@@ -45,7 +45,7 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 
 ## Dossiê automático
 - Ao receber o MED, `BuildDossierAction` puxa Woovi (transação, cobrança, devoluções, comprovante), unico-api
-  (venda - rota ainda a criar - e cadastro) e KYC (status), gera evidências `uploaded_by=system` e roda a
+  (venda por `/api/med/sales/lookup` e cadastro) e KYC (status), gera evidências `uploaded_by=system` e roda a
   conferência (`MatchDossierAction`). Na defesa do seller, `ProcessSellerDefense` completa, reconfere e decide o
   envio automático (`AutoSendDisputeAction`, com travas). Detalhes e contrato do unico-api: KB seção 8.
 - Documento gerado só muda pelo `StoreSystemEvidence` (troca o correlationID quando o conteúdo muda; o que foi

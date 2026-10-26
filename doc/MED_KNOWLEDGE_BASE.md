@@ -217,7 +217,7 @@ travas deixarem - envia sozinho. Pedido do Matheus em 12/10/2026. Desligado por 
 | Devoluções | Woovi `GET /charge/{correlationID}/refund` | idem |
 | Comprovante | Woovi `GET /receipt/pix-in/{e2e}` (vira evidência PDF) | transação |
 | Alegação | Woovi `GET /funds-recovery/{e2e}/disputes` - `situationType` (SCAM, ACCOUNT_TAKEOVER...) | feature "MED API" (403 = não configurado) |
-| Venda | unico-api, rota **a criar** (abaixo) | `unicopag_account_id` + correlationID/txid/e2e |
+| Venda | unico-api `GET /api/med/sales/lookup` (abaixo, no ar desde 26/10/2026) | correlationID/txid/e2e (sem conta) |
 | Cadastro | unico-api `GET /api/kyc-panel/accounts/{account_id}/register` (existe, KB do KYC 8.22) | `unicopag_account_id` |
 | KYC | KYC `GET /api/onboarding/status?account_id=` (pública) | `unicopag_account_id` |
 

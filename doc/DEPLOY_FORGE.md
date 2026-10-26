@@ -61,7 +61,7 @@ MED_WHATSAPP_TEMPLATE=<nome do template aprovado na Meta>
 MED_DOSSIE_HABILITADO=false
 MED_ENVIO_AUTOMATICO=false
 UNICOPAG_API_KEY=<chave de uma integração "med" só de leitura no unico-api>
-UNICOPAG_SALE_ENDPOINT=<rota de venda, quando o unico-api a criar>
+UNICOPAG_SALE_ENDPOINT="/api/med/sales/lookup?correlation_id={correlation_id}&end_to_end_id={end_to_end_id}&txid={txid}"
 
 WOOVI_BASE_URL=https://api.woovi.com
 # Aplicativo da conta mestre/parceira criado só para o MED (escopos PARTNER_COMPANY_GET_LIST e

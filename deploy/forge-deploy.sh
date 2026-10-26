@@ -23,8 +23,10 @@ $FORGE_PHP artisan filament:optimize
 $ACTIVATE_RELEASE()
 
 # O worker (daemon queue:work) segura o código antigo em memória até reiniciar.
-$RESTART_QUEUES()
-
 # O worker do MED pode rodar como processo em segundo plano (Server > Background
-# processes), que o $RESTART_QUEUES() não alcança: reinicia pelo sinal do Laravel.
+# processes), que o $RESTART_QUEUES() não alcança: reinicia pelo sinal do Laravel,
+# já com o release novo ativo. Antes do $RESTART_QUEUES(): depois dele o Forge
+# não aceita mais comando (o deploy quebra com "syntax error").
 $FORGE_PHP artisan queue:restart
+
+$RESTART_QUEUES()

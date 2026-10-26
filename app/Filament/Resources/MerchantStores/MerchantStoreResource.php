@@ -70,6 +70,8 @@ class MerchantStoreResource extends Resource
                     ->label('Lojista')
                     ->description(fn (MerchantStore $record): string => 'conta '.$record->merchant_account_id)
                     ->weight('medium')
+                    ->wrap()
+                    ->grow()
                     ->searchable(),
                 TextColumn::make('website')
                     ->label('Site')
@@ -89,7 +91,9 @@ class MerchantStoreResource extends Resource
                 TextColumn::make('capture_status')
                     ->label('Políticas')
                     ->badge()
-                    ->state(fn (MerchantStore $record): string => self::statusLabel($record))
+                    // Sem site a coluna Site já diz: aqui não repete.
+                    ->state(fn (MerchantStore $record): ?string => blank($record->website) ? null : self::statusLabel($record))
+                    ->placeholder('—')
                     ->color(fn (MerchantStore $record): string => match (true) {
                         $record->capture_status === 'ok' => 'success',
                         $record->capture_status === 'partial' => 'warning',
@@ -161,6 +165,8 @@ class MerchantStoreResource extends Resource
             ->icon(fn (MerchantStore $record): string => $record->website ? 'heroicon-o-pencil-square' : 'heroicon-o-plus')
             ->color(fn (MerchantStore $record): string => $record->website ? 'gray' : 'primary')
             ->button()
+            ->labeledFrom(fn (MerchantStore $record): ?string => $record->website ? '2xl' : null)
+            ->tooltip(fn (MerchantStore $record): ?string => $record->website ? 'Editar site' : null)
             ->size('sm')
             ->modalHeading(fn (MerchantStore $record): string => "Site da loja - {$record->name}")
             ->modalDescription('A captura abre o site, acha as páginas de entrega, termos e trocas e guarda cada uma em PDF nos MEDs da loja. Informe a página específica só quando a busca não achar.')

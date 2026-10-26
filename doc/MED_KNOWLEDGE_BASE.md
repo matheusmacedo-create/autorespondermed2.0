@@ -407,6 +407,10 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   política da loja e a IA usa a política padrão.
 - **Worker do MED no Forge é processo em segundo plano**: o `$RESTART_QUEUES()` do deploy não o reinicia (ele
   seguia com o código antigo). O script de deploy tem `artisan queue:restart` explícito.
+- **Envio por fileId na conta mestre**: o `POST /api/v1/files` aceita o arquivo, mas o `POST
+  /dispute/{id}/evidence` com `fileId` responde 403 "Your account does not have the permission to send a evidence
+  by fileId" (falta a feature DISPUTE_EVIDENCE_FILE_ID). O envio agora refaz por link assinado e reenvia; a
+  prévia usa `WOOVI_EVIDENCE_MODE=url` direto. O link assinado precisa abrir de fora (conferido: 200, PDF).
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

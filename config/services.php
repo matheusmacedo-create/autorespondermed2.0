@@ -62,10 +62,14 @@ return [
         // Como a evidência chega à Woovi em POST /api/v1/dispute/{id}/evidence:
         // - file_id: sobe o arquivo antes em POST /api/v1/files (purpose
         //   DISPUTE_EVIDENCE) e manda o id. Recomendado pela Woovi, mas exige a
-        //   feature DISPUTE_EVIDENCE_FILE_ID e o escopo FILE_POST na conta - sem
-        //   eles a Woovi devolve 403 e o envio cai sozinho para `url`.
-        // - url: manda um link temporário assinado deste sistema, de onde a
-        //   Woovi baixa o arquivo. Exige APP_URL público.
+        //   feature DISPUTE_EVIDENCE_FILE_ID. Sem ela (403 no envio, caso da conta
+        //   mestre), reenvia sozinho como `woovi_url`, a conta guarda a recusa e só
+        //   tenta o fileId de novo depois de uma semana.
+        // - woovi_url: sobe o arquivo na Woovi e manda o link de download que ela
+        //   devolve (storage dela); a Woovi baixa e guarda a cópia na hora.
+        // - url: manda um link temporário assinado deste sistema, de onde a Woovi
+        //   baixa o arquivo. Exige APP_URL público. Também é o caminho quando a conta
+        //   nem sobe arquivo (sem FILE_POST).
         'evidence_mode' => env('WOOVI_EVIDENCE_MODE', 'file_id'),
 
         // Validade do link assinado do modo `url` (a Woovi baixa e re-hospeda).

@@ -50,6 +50,7 @@ class WooviAccount extends Model
             'auto_send' => 'boolean',
             'webhooks_registered_at' => 'datetime',
             'last_synced_at' => 'datetime',
+            'evidence_file_id_refused_at' => 'datetime',
         ];
     }
 

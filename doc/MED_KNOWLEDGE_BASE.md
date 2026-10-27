@@ -409,8 +409,12 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   seguia com o código antigo). O script de deploy tem `artisan queue:restart` explícito.
 - **Envio por fileId na conta mestre**: o `POST /api/v1/files` aceita o arquivo, mas o `POST
   /dispute/{id}/evidence` com `fileId` responde 403 "Your account does not have the permission to send a evidence
-  by fileId" (falta a feature DISPUTE_EVIDENCE_FILE_ID). O envio agora refaz por link assinado e reenvia; a
-  prévia usa `WOOVI_EVIDENCE_MODE=url` direto. O link assinado precisa abrir de fora (conferido: 200, PDF).
+  by fileId" (falta a feature DISPUTE_EVIDENCE_FILE_ID). O guia da Woovi diz que, por `url`, ela baixa o
+  documento na hora do envio e guarda a cópia dela (a resposta traz o link novo). Então o envio reenvia com o
+  `file.url` do próprio upload (S3 da Woovi, `woovi-media-production`, vale 1h; o upload repetido com o mesmo
+  correlationID devolve o mesmo arquivo e um link novo - conferido em 27/10/2026). A conta guarda a recusa
+  (`evidence_file_id_refused_at`) e vai direto pelo link por uma semana; depois tenta o fileId de novo, então
+  quando a Woovi liberar a feature o sistema passa a usá-la sozinho. Pedir a feature ao suporte da Woovi.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

@@ -25,6 +25,9 @@ use RuntimeException;
  */
 class SendEvidenceToWooviAction
 {
+    /** Depois de a Woovi recusar o fileId, quantos dias até tentar de novo. */
+    private const FILE_ID_RETRY_DAYS = 7;
+
     public function __construct(
         private readonly GenerateDefenseLetterAction $generateDefenseLetter,
         private readonly MatchDossierAction $match,
@@ -67,39 +70,31 @@ class SendEvidenceToWooviAction
         }
 
         $client = WooviClient::for($dispute->wooviAccount);
-        $mode = (string) config('services.woovi.evidence_mode', 'file_id');
+        $mode = $this->initialMode($dispute);
 
         try {
             try {
-                $documents = [];
-
-                foreach ($pending as $evidence) {
-                    [$documents[], $mode] = $this->document($client, $evidence, $mode, $dispute);
-                }
-
+                [$documents, $mode] = $this->documents($client, $pending, $mode, $dispute);
                 $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
             } catch (WooviException $e) {
-                // A conta pode subir o arquivo (FILE_POST) e mesmo assim não ter a feature
-                // de evidência por fileId: a recusa vem só no envio. Reenvia uma vez, por link.
+                // A conta sobe o arquivo (FILE_POST), mas não tem a feature de evidência por
+                // fileId: a recusa vem só aqui. Reenvia uma vez com o link do arquivo no
+                // storage da própria Woovi, que ela baixa e guarda na hora.
                 if ($mode !== 'file_id' || ! $e->isFileIdNotAllowed()) {
                     throw $e;
                 }
 
+                $dispute->wooviAccount->forceFill(['evidence_file_id_refused_at' => now()])->save();
+
                 $this->events->record(
                     DisputeEventType::EVIDENCE_SEND_FAILED,
                     $dispute,
-                    'A Woovi não aceita evidência por arquivo nesta conta - reenviando por link.',
+                    'A Woovi não aceita evidência por fileId nesta conta - reenviando com o link do arquivo guardado na Woovi.',
                     ['status' => $e->status, 'error_code' => $e->errorCode],
                     level: 'warning',
                 );
 
-                $mode = 'url';
-                $documents = [];
-
-                foreach ($pending as $evidence) {
-                    [$documents[]] = $this->document($client, $evidence, $mode, $dispute);
-                }
-
+                [$documents, $mode] = $this->documents($client, $pending, 'woovi_url', $dispute);
                 $response = $client->sendEvidence($dispute->wooviIdentifier(), $documents);
             }
         } catch (WooviException $e) {
@@ -127,7 +122,7 @@ class SendEvidenceToWooviAction
         $this->events->record(
             DisputeEventType::EVIDENCE_SENT,
             $dispute,
-            sprintf('%d documento(s) enviados à Woovi (modo %s).', $pending->count(), $mode),
+            sprintf('%d documento(s) enviados à Woovi (%s).', $pending->count(), self::modeLabel($mode)),
             ['evidence_ids' => $pending->pluck('id')->all(), 'mode' => $mode],
             source: $source,
         );
@@ -136,7 +131,44 @@ class SendEvidenceToWooviAction
     }
 
     /**
+     * Modo do envio: o configurado, menos o fileId que a conta já recusou há pouco
+     * (vai direto pelo link do arquivo na Woovi; passada a semana, tenta de novo e
+     * passa a usar o fileId sozinho quando a Woovi liberar a feature).
+     */
+    private function initialMode(Dispute $dispute): string
+    {
+        $mode = (string) config('services.woovi.evidence_mode', 'file_id');
+        $refusedAt = $dispute->wooviAccount->evidence_file_id_refused_at;
+
+        if ($mode === 'file_id' && $refusedAt !== null && $refusedAt->gt(now()->subDays(self::FILE_ID_RETRY_DAYS))) {
+            return 'woovi_url';
+        }
+
+        return in_array($mode, ['file_id', 'woovi_url', 'url'], true) ? $mode : 'file_id';
+    }
+
+    /**
+     * @param  iterable<DisputeEvidence>  $pending
+     * @return array{0: array<int, array<string, string>>, 1: string} os documentos e o modo que valeu
+     */
+    private function documents(WooviClient $client, iterable $pending, string $mode, Dispute $dispute): array
+    {
+        $documents = [];
+
+        foreach ($pending as $evidence) {
+            [$documents[], $mode] = $this->document($client, $evidence, $mode, $dispute);
+        }
+
+        return [$documents, $mode];
+    }
+
+    /**
      * Monta o item de `documents` - com `fileId` ou com `url`, nunca os dois.
+     *
+     * - file_id: o arquivo sobe para a Woovi e vai pelo id (feature DISPUTE_EVIDENCE_FILE_ID).
+     * - woovi_url: o arquivo sobe para a Woovi e vai pelo link de download que ela
+     *   devolve (storage dela; ela baixa e guarda a cópia na hora do envio).
+     * - url: link assinado deste sistema - só quando nem o upload na Woovi funciona.
      *
      * @return array{0: array<string, string>, 1: string} o documento e o modo para os próximos
      */
@@ -147,33 +179,36 @@ class SendEvidenceToWooviAction
             'correlationID' => $evidence->correlation_id,
         ];
 
-        if ($mode === 'file_id') {
+        if ($mode === 'file_id' || $mode === 'woovi_url') {
             try {
-                if (! $evidence->woovi_file_id) {
-                    $file = $client->uploadEvidenceFile(
-                        $evidence->contents(),
-                        $evidence->original_name,
-                        $evidence->mime_type,
-                        $evidence->correlation_id,
-                    );
+                // O link do arquivo na Woovi expira: no modo woovi_url sobe sempre (com o
+                // mesmo correlationID a Woovi devolve o arquivo guardado e um link novo).
+                $file = $mode === 'woovi_url' || ! $evidence->woovi_file_id
+                    ? $client->uploadEvidenceFile($evidence->contents(), $evidence->original_name, $evidence->mime_type, $evidence->correlation_id)
+                    : [];
 
-                    $evidence->forceFill(['woovi_file_id' => $file['id'] ?? null])->save();
+                if (filled($file['id'] ?? null) && $file['id'] !== $evidence->woovi_file_id) {
+                    $evidence->forceFill(['woovi_file_id' => $file['id']])->save();
                 }
 
-                if ($evidence->woovi_file_id) {
+                if ($mode === 'file_id' && $evidence->woovi_file_id) {
                     return [['fileId' => $evidence->woovi_file_id] + $base, $mode];
+                }
+
+                if ($mode === 'woovi_url' && filled($file['url'] ?? null)) {
+                    return [['url' => (string) $file['url']] + $base, $mode];
                 }
             } catch (WooviException $e) {
                 if (! $e->isFileIdNotAllowed()) {
                     throw $e;
                 }
 
-                // Conta sem DISPUTE_EVIDENCE_FILE_ID / FILE_POST: segue por URL,
+                // Conta sem FILE_POST (ou sem a feature): segue pelo link deste sistema,
                 // para este e os próximos arquivos.
                 $this->events->record(
                     DisputeEventType::EVIDENCE_SEND_FAILED,
                     $dispute,
-                    'Conta sem permissão de evidência por arquivo na Woovi - enviando por link.',
+                    'Conta sem permissão de subir arquivo na Woovi - enviando pelo link deste sistema.',
                     ['status' => $e->status, 'error_code' => $e->errorCode],
                     level: 'warning',
                 );
@@ -189,6 +224,15 @@ class SendEvidenceToWooviAction
         );
 
         return [['url' => $url] + $base, $mode];
+    }
+
+    public static function modeLabel(string $mode): string
+    {
+        return match ($mode) {
+            'file_id' => 'arquivos pelo id na Woovi',
+            'woovi_url' => 'arquivos guardados na Woovi, pelo link dela',
+            default => 'arquivos pelo link deste sistema',
+        };
     }
 
     /**

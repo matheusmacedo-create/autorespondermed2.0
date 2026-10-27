@@ -18,7 +18,7 @@
     </style>
 </head>
 <body>
-    <h1>DEFESA – Mecanismo Especial de Devolução (MED)</h1>
+    <h1>{{ strtoupper((string) $dispute->type) === 'MED' || blank($dispute->type) ? 'DEFESA – Mecanismo Especial de Devolução (MED)' : 'DEFESA – Contestação ('.$dispute->type.')' }}</h1>
 
     <div class="header">
         @if ($requester)

@@ -57,6 +57,10 @@ return [
         'prazo_rastreio_dias_uteis' => (int) env('MED_PRAZO_RASTREIO_DIAS_UTEIS', 3),
         'prazo_entrega_dias_uteis_min' => (int) env('MED_PRAZO_ENTREGA_DIAS_UTEIS_MIN', 10),
         'prazo_entrega_dias_uteis' => (int) env('MED_PRAZO_ENTREGA_DIAS_UTEIS', 15),
+        // Prazos acima como política de TODAS as lojas, confirmado pela operação. Sem
+        // isso a defesa só cita prazo de loja quando a política foi capturada do site
+        // dela (a carta vai ao banco: política não conferida não pode ser afirmada).
+        'politica_padrao_confirmada' => (bool) env('MED_POLITICA_PADRAO_CONFIRMADA', false),
     ],
 
     /*

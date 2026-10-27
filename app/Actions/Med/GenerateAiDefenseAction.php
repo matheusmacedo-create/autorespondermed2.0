@@ -24,6 +24,13 @@ use Throwable;
  */
 class GenerateAiDefenseAction
 {
+    /**
+     * Versão das regras do rascunho. Sobe quando uma regra muda o que a carta pode
+     * afirmar; rascunho de versão anterior não sai no envio em lote (med:responder).
+     * 2: prazo de loja só com a política capturada do site ou o padrão confirmado.
+     */
+    public const RULES_VERSION = 2;
+
     public function __construct(
         private readonly DefenseWriter $writer,
         private readonly DisputeEventRecorder $events,
@@ -50,7 +57,7 @@ class GenerateAiDefenseAction
         $draft = $result['draft'];
 
         $dispute->forceFill([
-            'ai_defense' => $draft + ['model' => $result['model'], 'generated_at' => now()->toIso8601String(), 'used_claim' => filled($case['claim'])],
+            'ai_defense' => $draft + ['model' => $result['model'], 'generated_at' => now()->toIso8601String(), 'used_claim' => filled($case['claim']), 'rules_version' => self::RULES_VERSION],
             'ai_defense_generated_at' => now(),
             // O texto editável parte do rascunho; edição do analista não é sobrescrita
             // por um rascunho novo sem ele pedir (botão "Usar o rascunho da IA"). Texto
@@ -145,8 +152,10 @@ class GenerateAiDefenseAction
     }
 
     /**
-     * Prazo de entrega da política das lojas contra o tempo que passou entre o
-     * pagamento e a abertura do MED (e até hoje), em dias úteis.
+     * Quanto tempo passou entre o pagamento e a abertura do MED (e até hoje), em dias
+     * úteis. A política padrão de prazo só vem junto quando a operação confirmou que
+     * vale para todas as lojas; fora isso, prazo de loja só pela política capturada
+     * do site dela ({@see storePolicies()}).
      *
      * @return array<string, mixed>|null
      */
@@ -162,13 +171,14 @@ class GenerateAiDefenseAction
         $min = (int) config('med.defesa.prazo_entrega_dias_uteis_min');
         $max = (int) config('med.defesa.prazo_entrega_dias_uteis');
         $atOpening = $dispute->opened_at ? BusinessDays::between($paidAt, $dispute->opened_at) : null;
+        $standard = (bool) config('med.defesa.politica_padrao_confirmada');
 
         return array_filter([
-            'politica_de_envio_da_loja' => "Código de rastreio em até {$tracking} dias úteis; entrega em {$min} a {$max} dias úteis após o despacho, contados em dias úteis.",
-            'prazo_maximo_dias_uteis_desde_o_pagamento' => $tracking + $max,
             'dias_uteis_do_pagamento_ate_a_abertura_do_med' => $atOpening,
             'dias_uteis_do_pagamento_ate_hoje' => BusinessDays::between($paidAt, now()),
-            'med_aberto_dentro_do_prazo_de_entrega' => $atOpening === null ? null : $atOpening <= $tracking + $max,
+            'politica_de_envio_padrao_das_lojas' => $standard ? "Código de rastreio em até {$tracking} dias úteis; entrega em {$min} a {$max} dias úteis após o despacho, contados em dias úteis." : null,
+            'prazo_maximo_dias_uteis_desde_o_pagamento' => $standard ? $tracking + $max : null,
+            'med_aberto_dentro_do_prazo_de_entrega' => $standard && $atOpening !== null ? $atOpening <= $tracking + $max : null,
         ], fn ($value): bool => $value !== null);
     }
 

@@ -136,9 +136,16 @@ class AiDefenseTest extends TestCase
         $this->assertSame('Auto Ajustes Glasses | Compre 1 Leve 2', $case['case']['produto']);
         // Pago no domingo 18/10, MED na quarta 21/10: 3 dias úteis (seg, ter e qua).
         $this->assertSame(3, $case['delivery']['dias_uteis_do_pagamento_ate_a_abertura_do_med']);
+        // Sem política capturada nem padrão confirmado, nenhum prazo de loja vai à IA.
+        $this->assertArrayNotHasKey('politica_de_envio_padrao_das_lojas', $case['delivery']);
+        $this->assertArrayNotHasKey('prazo_maximo_dias_uteis_desde_o_pagamento', $case['delivery']);
+        $this->assertStringContainsString('não cite política nem prazo da loja', (new ClaudeDefenseWriter)->prompt($case));
+
+        config(['med.defesa.politica_padrao_confirmada' => true]);
+        app(GenerateAiDefenseAction::class)->handle($dispute->fresh(), 1);
+        $case = $this->writer->received;
         $this->assertSame(18, $case['delivery']['prazo_maximo_dias_uteis_desde_o_pagamento']);
         $this->assertTrue($case['delivery']['med_aberto_dentro_do_prazo_de_entrega']);
-        $this->assertStringContainsString('<entrega>', (new ClaudeDefenseWriter)->prompt($case));
     }
 
     public function test_letter_follows_the_compliance_format_with_the_requester_masked(): void

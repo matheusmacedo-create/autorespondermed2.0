@@ -424,6 +424,13 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   rascunhos foram refeitos antes de qualquer envio em lote. O #298 (Mega Store, enviado à mão em 26/10) saiu
   com a frase, mas ela confere: o modelo da Compliance é o caso #308 da Mega Store, e o print da política que veio
   com ele mostra rastreio em até 3 dias úteis e entrega em 10 a 15. Falta o site da Mega Store para capturar.
+- **Prazo real da Woovi para responder** (medido em 26/10/2026, ~22:30): MED aberto em 22/10 às 19:08 foi recusado
+  ("Você não pode enviar uma evidência após o prazo ter expirado", HTTP 400) e o aberto às 22:57 do mesmo dia foi
+  aceito: o prazo fica em ~4 dias (96h) da abertura - com abertura numa quinta, também bate com 2 dias úteis.
+  Confirmar a regra com a Woovi antes de mudar `MED_PRAZO_RESPOSTA_HORAS` (hoje 72h, mais conservador que 96h).
+- **Primeiro lote (`med:responder --incluir-vencidos`, 26/10/2026)**: 29 MEDs respondidos (Mega Store, Loja, 4
+  Seasons), 4 recusados por prazo expirado; ficaram de fora os "não defender" (pagador diferente do cliente da
+  cobrança ou venda não localizada) e o único CHARGEBACK.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

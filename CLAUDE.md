@@ -25,6 +25,10 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   fora e as contas de demonstração; caso já enviado à Woovi nunca sai.
 - Aviso ao lojista desligado (`MED_AVISO_LOJISTA=false`): nem e-mail nem WhatsApp até a operação estar
   organizada; `SellerNotifier::enabled()` corta todos os caminhos e esconde as ações de aviso da ficha.
+- `med:responder [--incluir-vencidos] [--usuario=email] [--confirmar]`: responde em lote os MEDs com conferência
+  pronta, venda e valor conferidos, sem devolução, pagador = cliente da cobrança e IA recomendando defender
+  (rascunho da versão atual das regras, `GenerateAiDefenseAction::RULES_VERSION`); relê cada caso na Woovi antes.
+  Sem `--confirmar` só lista e diz por que cada caso fica. Só MED (chargeback tem outra carta).
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 
@@ -71,8 +75,10 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - Com `MED_IA_AUTOMATICA`, o fim da montagem do dossiê já enfileira o rascunho (uma vez por caso).
 - Carta no formato da Compliance (`config('med.defesa')`): cabeçalho (requerente mascarado, data, valor, produto),
   corpo = `defense_text`, canais oficiais, pedido de indeferimento, "Compliance Único Pag"; fatos e evidências
-  em anexo. A IA escreve só o corpo, no estilo do modelo real que está no `ClaudeDefenseWriter`, e recebe o prazo
-  da política de entrega em dias úteis (`BusinessDays`) para argumentar "dentro do prazo, MED não é para atraso".
+  em anexo. A IA escreve só o corpo, no estilo do modelo real que está no `ClaudeDefenseWriter`, com os dias úteis
+  entre o pagamento e o MED (`BusinessDays`). Prazo ou "política da loja" só com a política capturada do site ou
+  com `MED_POLITICA_PADRAO_CONFIRMADA` - a carta vai ao banco, política não conferida não pode ser afirmada. Mudou
+  regra do que a carta afirma: suba `RULES_VERSION`.
 - "Gerar defesa com IA" na ficha (job `GenerateAiDefense`, aviso no sininho): `GenerateAiDefenseAction` monta o caso
   só com fatos ok da conferência, pendências, evidências, relato do seller e - com a feature "MED API" - o relato
   de quem contestou (`/funds-recovery/{id}/infraction-reports`); `ClaudeDefenseWriter` (SDK oficial, JSON Schema,

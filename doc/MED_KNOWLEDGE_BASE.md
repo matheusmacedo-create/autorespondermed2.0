@@ -419,6 +419,11 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   da Woovi aceito (200) com carta + registro da venda. A resposta devolve, por documento, o link da cópia que a
   Woovi guardou (outro arquivo, bucket privado: abrir de fora dá AccessDenied, é o esperado). O status do MED na
   Woovi segue `ACKNOWLEDGED` depois da resposta; a decisão chega pelo webhook.
+- **Erro corrigido (27/10/2026)**: a IA afirmava "a política de envio informada no site da loja prevê 3 + 10 a 15
+  dias úteis" em lojas sem política capturada (Mega Store e Loja sem site; AlliPure sem política no site). Os 33
+  rascunhos foram refeitos antes de qualquer envio em lote. O #298 (Mega Store, enviado à mão em 26/10) saiu
+  com a frase, mas ela confere: o modelo da Compliance é o caso #308 da Mega Store, e o print da política que veio
+  com ele mostra rastreio em até 3 dias úteis e entrega em 10 a 15. Falta o site da Mega Store para capturar.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

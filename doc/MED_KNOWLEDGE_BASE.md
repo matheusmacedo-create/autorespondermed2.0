@@ -415,6 +415,10 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   correlationID devolve o mesmo arquivo e um link novo - conferido em 27/10/2026). A conta guarda a recusa
   (`evidence_file_id_refused_at`) e vai direto pelo link por uma semana; depois tenta o fileId de novo, então
   quando a Woovi liberar a feature o sistema passa a usá-la sozinho. Pedir a feature ao suporte da Woovi.
+- **Primeiro envio real (27/10/2026, MED de R$ 177,00 da Mega Store)**: fileId recusado (403), reenvio pelo link
+  da Woovi aceito (200) com carta + registro da venda. A resposta devolve, por documento, o link da cópia que a
+  Woovi guardou (outro arquivo, bucket privado: abrir de fora dá AccessDenied, é o esperado). O status do MED na
+  Woovi segue `ACKNOWLEDGED` depois da resposta; a decisão chega pelo webhook.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

@@ -123,7 +123,9 @@ class SendEvidenceToWooviAction
             DisputeEventType::EVIDENCE_SENT,
             $dispute,
             sprintf('%d documento(s) enviados à Woovi (%s).', $pending->count(), self::modeLabel($mode)),
-            ['evidence_ids' => $pending->pluck('id')->all(), 'mode' => $mode],
+            // A recomendação da IA no momento do envio: é o que o med:resultados cruza
+            // com a decisão da Woovi.
+            ['evidence_ids' => $pending->pluck('id')->all(), 'mode' => $mode, 'ai_recommendation' => data_get($dispute->ai_defense, 'recommendation')],
             source: $source,
         );
 

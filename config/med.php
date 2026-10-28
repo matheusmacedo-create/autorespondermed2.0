@@ -11,6 +11,26 @@ return [
     'prazo_resposta_horas' => (int) env('MED_PRAZO_RESPOSTA_HORAS', 72),
 
     /*
+    | Prazo que a Woovi aplica de fato para receber evidência, medido em 26/10/2026
+    | (~96h da abertura; ela recusa com "prazo ter expirado"). O envio não tenta
+    | caso mais velho que isto.
+    */
+    'prazo_woovi_horas' => (int) env('MED_PRAZO_WOOVI_HORAS', 96),
+
+    /*
+    | Resposta automática: de hora em hora o `med:responder` responde sozinho os MEDs
+    | que já têm tudo (mesmos critérios do envio em lote). `incluir_nao_defender`
+    | contesta também os que a IA marca "não defender" (pagador diferente do cliente
+    | da cobrança, KYC não aprovado, venda não localizada) - decisão da operação em
+    | 28/10/2026, para analisar depois a decisão da Woovi (`med:resultados`). Dado
+    | incoerente (valor, devolução já feita) continua fora.
+    */
+    'resposta_automatica' => [
+        'habilitada' => (bool) env('MED_RESPOSTA_AUTOMATICA', false),
+        'incluir_nao_defender' => (bool) env('MED_DEFENDER_NAO_RECOMENDADOS', false),
+    ],
+
+    /*
     | Janela de trabalho: a fila, o painel e a sincronização olham só os MEDs
     | abertos nos últimos N dias (`Dispute::inWindow()`); `med:podar` apaga o
     | resto. 0 = sem janela.

@@ -435,6 +435,10 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
   Brasil (site pelo KYC, 3 políticas capturadas) levaram as políticas como evidência. Os "não defender" que restaram
   têm pagador de fato diferente do cliente da cobrança (2 com CNPJ pagando pedido de CPF) e alegação de golpe; um
   pagador cita ter comprado em "megamastershow.site" - triangulação, não se contesta.
+- **Resposta automática ligada (28/10/2026)**, a pedido da operação: `med:responder --automatico` de hora em hora,
+  contestando também os "não defender" (`MED_DEFENDER_NAO_RECOMENDADOS=true`) para medir depois o que a Woovi
+  decide (`med:resultados`). A regra 9 da IA (RULES_VERSION 3) impede a carta desses casos de afirmar "compra
+  legítima" ou "sem indício de fraude" quando o pagador não é o cliente da cobrança.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

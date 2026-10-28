@@ -28,8 +28,10 @@ class GenerateAiDefenseAction
      * Versão das regras do rascunho. Sobe quando uma regra muda o que a carta pode
      * afirmar; rascunho de versão anterior não sai no envio em lote (med:responder).
      * 2: prazo de loja só com a política capturada do site ou o padrão confirmado.
+     * 3: caso contestado por decisão da operação (pagador diferente do cliente, venda
+     *    não localizada) não afirma legitimidade nem ausência de indício de fraude.
      */
-    public const RULES_VERSION = 2;
+    public const RULES_VERSION = 3;
 
     public function __construct(
         private readonly DefenseWriter $writer,

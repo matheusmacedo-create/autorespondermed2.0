@@ -25,10 +25,15 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   fora e as contas de demonstração; caso já enviado à Woovi nunca sai.
 - Aviso ao lojista desligado (`MED_AVISO_LOJISTA=false`): nem e-mail nem WhatsApp até a operação estar
   organizada; `SellerNotifier::enabled()` corta todos os caminhos e esconde as ações de aviso da ficha.
-- `med:responder [--incluir-vencidos] [--usuario=email] [--confirmar]`: responde em lote os MEDs com conferência
-  pronta, venda e valor conferidos, sem devolução, pagador = cliente da cobrança e IA recomendando defender
-  (rascunho da versão atual das regras, `GenerateAiDefenseAction::RULES_VERSION`); relê cada caso na Woovi antes.
-  Sem `--confirmar` só lista e diz por que cada caso fica. Só MED (chargeback tem outra carta).
+- `med:responder [--incluir-vencidos] [--automatico] [--usuario=email] [--confirmar]`: responde em lote os MEDs
+  prontos e relê cada caso na Woovi antes; sem `--confirmar` só lista e diz por que cada caso fica. Nunca sai: dado
+  incoerente (transação não conferida, valor contestado ou da venda diferente do Pix, devolução feita), rascunho de
+  regras antigas (`RULES_VERSION`), prazo da Woovi (`MED_PRAZO_WOOVI_HORAS`, 96h) vencido, caso que a Woovi já
+  recusou por prazo ou que falhou 3 vezes em 24h, loja com captura de política em andamento, chargeback. Caso fraco
+  (pagador diferente do cliente, venda não localizada, KYC não aprovado, IA "não defender") só com
+  `MED_DEFENDER_NAO_RECOMENDADOS` (decisão da operação em 28/10/2026). `MED_RESPOSTA_AUTOMATICA` roda isso de hora
+  em hora (minuto 20) como sistema e pede rascunho novo a quem só falta o rascunho. `med:resultados` cruza as
+  decisões da Woovi com a recomendação da IA no envio (guardada no evento) e por loja.
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 

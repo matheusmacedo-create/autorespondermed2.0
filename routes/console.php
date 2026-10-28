@@ -21,6 +21,15 @@ Schedule::command('med:sincronizar')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/med-agendado.log'));
 
+// Resposta automática (MED_RESPOSTA_AUTOMATICA): 20 min depois da sincronização, com o
+// dossiê e o rascunho da IA dos MEDs novos já prontos, responde sozinho o que passa
+// nas travas do med:responder - sem ninguém clicar.
+Schedule::command('med:responder --automatico --confirmar')
+    ->hourlyAt(20)
+    ->when(fn (): bool => (bool) config('med.resposta_automatica.habilitada'))
+    ->withoutOverlapping(50)
+    ->appendOutputTo(storage_path('logs/med-agendado.log'));
+
 // Prazo vencendo: lembrete ao seller e lista no Discord.
 Schedule::command('med:alertar-prazos')
     ->cron('0 9,14,18 * * *')

@@ -431,6 +431,10 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 - **Primeiro lote (`med:responder --incluir-vencidos`, 26/10/2026)**: 29 MEDs respondidos (Mega Store, Loja, 4
   Seasons), 4 recusados por prazo expirado; ficaram de fora os "não defender" (pagador diferente do cliente da
   cobrança ou venda não localizada) e o único CHARGEBACK.
+- **Segundo lote (28/10/2026)**: 16 MEDs abertos em 27-28/10 respondidos, 0 falhas; Ze dos Mantos e Volei Sports
+  Brasil (site pelo KYC, 3 políticas capturadas) levaram as políticas como evidência. Os "não defender" que restaram
+  têm pagador de fato diferente do cliente da cobrança (2 com CNPJ pagando pedido de CPF) e alegação de golpe; um
+  pagador cita ter comprado em "megamastershow.site" - triangulação, não se contesta.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 

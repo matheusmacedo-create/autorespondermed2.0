@@ -66,8 +66,8 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 
 | Uso | Endpoint | Escopo | Fonte |
 |---|---|---|---|
-| Ler um caso | `GET /api/v1/dispute/{id}` - **o id é o endToEndId** | `DISPUTE_GET` | `[openapi]` |
-| Listar casos | `GET /api/v1/dispute?start&end` (paginado, `pageInfo.hasNextPage`) | `DISPUTE_GET_LIST` | `[openapi]` |
+| Ler um caso | `GET /api/v1/dispute/{id}` - **só aceita o endToEndId** (o id interno dá 400 "Disputa não encontrada"); Pix com mais de uma disputa devolve a **mais antiga** (2.5) | `DISPUTE_GET` | `[openapi]` `[produção]` |
+| Listar casos | `GET /api/v1/dispute?start&end` (paginado, `pageInfo.hasNextPage`); `start`/`end` filtram pela criação (`createdAt`), em ordem crescente; cada item traz `id`, `type`, `status`, `endToEndId`, `value`, `disputeReason`, `createdAt` | `DISPUTE_GET_LIST` | `[openapi]` `[produção]` |
 | Subir arquivo | `POST /api/v1/files` multipart, `purpose=DISPUTE_EVIDENCE`, `correlationID` | `FILE_POST` | `[doc-woovi]` |
 | Enviar evidência | `POST /api/v1/dispute/{id}/evidence` `{documents:[{fileId\|url, description, correlationID}]}` | `DISPUTE_POST` | `[doc-woovi]` `[openapi]` |
 | Cadastrar webhook | `POST /api/v1/webhook` `{webhook:{name, event, url, isActive}}` | webhook | `[openapi]` |
@@ -102,6 +102,9 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 - Payload: `{event, dispute:{status, endToEndId, name, email, phoneNumber, value, disputeReason}}`. O exemplo
   da doc **não traz `id` nem identificação da conta**. `[doc-woovi]` Por isso cada conta tem uma URL própria
   (`/api/webhooks/woovi/{webhook_key}`). `[decisão]`
+- **Na prática o webhook traz `id` e `type`**: das 60 chamadas reais até 29/10/2026, 59 vieram como
+  `{status, value, disputeReason, endToEndId, type, id}` (sem nome, e-mail nem telefone do pagador) e uma com os
+  campos da doc mais `id` e `type`. `[produção]`
 - Assinatura: header `x-webhook-signature` = base64(RSA-SHA256(corpo bruto, chave privada da Woovi)).
   Qualquer chave publicada vale (rotação). O teste `WebhookSignatureVerifierTest` usa o exemplo **real** da
   doc - payload, assinatura e chave - e passa. `[doc-woovi]` `[código]`
@@ -121,10 +124,25 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 
 ### 2.4 Inconsistências da doc da Woovi (tratadas no código)
 
-- A página de evidência fala em "id da disputa recebido pelo webhook", mas o webhook não traz `id`. Usamos o
-  `id` interno quando a Woovi o devolve e o `endToEndId` nos outros casos (`Dispute::wooviIdentifier()`).
-  **Confirmar com a Woovi que o endpoint de evidência aceita o endToEndId.** `[inferido]`
+- A página de evidência fala em "id da disputa recebido pelo webhook", e o exemplo do webhook não traz `id` (o
+  webhook real traz, 2.2). Enviamos pelo `id` interno (`Dispute::wooviIdentifier()`; todos os casos o têm desde a
+  listagem; aceito nos 59 envios até 29/10) - por endToEndId a evidência poderia cair na outra disputa do mesmo
+  Pix (2.5). `[produção]`
 - O status `ACCEPTED`/`REJECTED` do evento pode faltar no campo; o nome do evento decide. `[código]`
+
+### 2.5 Um Pix, mais de uma disputa (29/10/2026) `[produção]`
+
+- O mesmo endToEndId pode ter várias disputas na Woovi: das 2.015 da conta mestre, 22 Pix têm duas - MED e
+  chargeback, MED cancelado e outro aberto depois, ou dois MEDs cancelados com valores diferentes.
+- **Um caso aqui é uma disputa da Woovi**: o índice único é `(woovi_account_id, woovi_dispute_id)` e o endToEndId
+  só indexado (migração `2026_10_29_000001`). `IngestDisputeAction` acha o caso pelo `id`; sem `id` (exemplo da
+  doc), só se o Pix tiver um caso daquele tipo - com dois, a chamada do webhook fica com o erro e a listagem resolve.
+- `SyncDisputeAction`: se o `GET /dispute/{endToEndId}` devolver outra disputa (id diferente), a releitura vem
+  da listagem de um dia antes a um dia depois da abertura do caso; a outra disputa não é aplicada a este caso.
+- O que aconteceu antes da correção: a ingestão casava só pelo endToEndId e as duas disputas se sobrescreviam a
+  cada sincronização. O #273 (MED ganho em 26/10, com chargeback aberto no mesmo Pix) acumulou 146 trocas de status
+  em três dias; o #354 (MED novo de 29/10, num Pix com chargeback de 06/10) virava "CHARGEBACK" a cada releitura e
+  a resposta automática o pulava ("não é MED"). Os dois foram corrigidos à mão no servidor no mesmo dia.
 
 ## 3. O que a Woovi não documenta (perguntar)
 
@@ -444,6 +462,8 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-10-29** - um caso por disputa da Woovi, não por Pix (2.5); GET só por endToEndId e devolve a mais
+  antiga; webhook real traz `id` e `type` (2.2).
 - **2026-10-26** - rota de venda no ar (`vps1.unicopag.com.br/api/med/sales/lookup`, chave `med_`); janela de
   14 dias, `med:podar`, aviso ao lojista desligado, defesa com IA automática e fila pelo lojista (seção 11).
 - **2026-10-25** - lojista do caso pela venda (`seller` + `account_id`), busca sem conta, aviso ao lojista da venda (8.1).

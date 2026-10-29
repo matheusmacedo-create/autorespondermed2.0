@@ -95,8 +95,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 ## Armadilhas
 - O webhook de disputa da Woovi **não diz de qual conta veio**: a conta sai da `webhook_key` na URL. Não
   troque por uma URL única.
-- O caso é identificado pelo `endToEndId` (é o que o `GET /dispute/{id}` aceita); o `id` interno da Woovi
-  nem sempre vem.
+- Um caso é uma disputa da Woovi (`woovi_dispute_id`), não um Pix: o mesmo `endToEndId` pode ter MED e
+  chargeback, ou um MED cancelado e outro aberto depois. O `GET /dispute/{id}` só aceita o `endToEndId` e devolve a
+  disputa mais antiga do Pix - nunca aplique o que ele devolve sem conferir o `id` (KB 2.5).
 - Na Woovi, `ACCEPTED` = devolução aceita (seller **perdeu**); `REJECTED` = contestação recusada (seller
   **ganhou**). O enum `DisputeStatus` documenta isso - não inverter nos textos.
 - Verifique a assinatura sobre o **corpo bruto** (`$request->getContent()`), nunca sobre JSON reserializado.

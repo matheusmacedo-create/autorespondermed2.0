@@ -19,6 +19,10 @@ use InvalidArgumentException;
  * Cria ou atualiza o caso a partir do que a Woovi informa - pelo webhook
  * (OPENPIX:DISPUTE_*) ou pela sincronização (GET /dispute). Idempotente: o mesmo
  * payload duas vezes não duplica caso, evento nem aviso ao seller.
+ *
+ * Um caso é uma disputa da Woovi, não um Pix: o mesmo endToEndId pode ter um MED e
+ * um chargeback, ou um MED cancelado e outro aberto depois. Quem decide é o id interno
+ * da Woovi (vem no webhook e na listagem).
  */
 class IngestDisputeAction
 {
@@ -52,11 +56,7 @@ class IngestDisputeAction
         };
 
         [$dispute, $created, $previousWooviStatus] = DB::transaction(function () use ($account, $payload, $endToEndId, $wooviStatus) {
-            $dispute = Dispute::query()
-                ->where('woovi_account_id', $account->id)
-                ->where('end_to_end_id', $endToEndId)
-                ->lockForUpdate()
-                ->first();
+            $dispute = $this->find($account, $endToEndId, $this->string($payload['id'] ?? $payload['_id'] ?? null), $this->string($payload['type'] ?? null));
 
             $created = $dispute === null;
             $previousWooviStatus = $dispute?->woovi_status;
@@ -161,6 +161,36 @@ class IngestDisputeAction
         }
 
         return $dispute;
+    }
+
+    /**
+     * O caso desta disputa, se já existe. Sem o id (payload do exemplo da doc), só vale
+     * se o Pix tiver um caso só daquele tipo: escolher entre dois poderia encerrar o caso
+     * errado. Esse fica para a sincronização, que traz o id.
+     */
+    private function find(WooviAccount $account, string $endToEndId, ?string $wooviId, ?string $type): ?Dispute
+    {
+        $cases = Dispute::query()
+            ->where('woovi_account_id', $account->id)
+            ->where('end_to_end_id', $endToEndId)
+            ->lockForUpdate()
+            ->get();
+
+        $sameType = fn (Dispute $case): bool => $type === null || strtoupper((string) $case->type) === strtoupper($type);
+
+        if ($wooviId !== null) {
+            // Caso criado por payload sem id adota o id que chegar depois.
+            return $cases->firstWhere('woovi_dispute_id', $wooviId)
+                ?? $cases->first(fn (Dispute $case): bool => $case->woovi_dispute_id === null && $sameType($case));
+        }
+
+        $candidates = $cases->filter($sameType);
+
+        if ($candidates->count() > 1) {
+            throw new InvalidArgumentException("Disputa sem id da Woovi e o Pix {$endToEndId} tem {$candidates->count()} casos: fica para a sincronização, que traz o id.");
+        }
+
+        return $candidates->first();
     }
 
     private function string(mixed $value): ?string

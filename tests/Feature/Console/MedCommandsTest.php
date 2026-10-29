@@ -6,9 +6,11 @@ use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
 use App\Mail\DisputeOpenedMail;
 use App\Models\Dispute;
+use App\Models\DisputeEvent;
 use App\Models\WooviAccount;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -54,6 +56,35 @@ class MedCommandsTest extends TestCase
 
         Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/api/v1/dispute?')
             && isset($request->data()['start'], $request->data()['end']));
+    }
+
+    public function test_med_and_chargeback_of_the_same_pix_are_two_cases_that_stay_put(): void
+    {
+        WooviAccount::factory()->create();
+        $med = ['id' => 'med-1', 'type' => 'MED', 'status' => 'REJECTED', 'endToEndId' => 'E-PIX-1', 'value' => 19391, 'createdAt' => now()->subDays(4)->toIso8601String()];
+        $chargeback = ['id' => 'cb-1', 'type' => 'CHARGEBACK', 'status' => 'OPENED', 'endToEndId' => 'E-PIX-1', 'value' => 19391, 'createdAt' => now()->subDay()->toIso8601String()];
+
+        Http::fake([
+            'api.woovi.test/api/v1/dispute?*' => Http::response(['disputes' => [$med, $chargeback], 'pageInfo' => ['hasNextPage' => false]]),
+            // O GET por endToEndId devolve a disputa mais antiga do Pix, seja qual for o caso.
+            'api.woovi.test/api/v1/dispute/E-PIX-1' => Http::response(['dispute' => Arr::only($med, ['id', 'type', 'status', 'endToEndId'])]),
+        ]);
+
+        $this->artisan('med:sincronizar')->assertSuccessful();
+        $this->artisan('med:sincronizar')->assertSuccessful();
+
+        $cases = Dispute::query()->where('end_to_end_id', 'E-PIX-1')->get()->keyBy('woovi_dispute_id');
+        $this->assertCount(2, $cases);
+        $this->assertSame('MED', $cases['med-1']->type);
+        $this->assertSame(DisputeStatus::REJECTED, $cases['med-1']->status);
+        $this->assertSame('CHARGEBACK', $cases['cb-1']->type);
+        $this->assertSame('OPENED', $cases['cb-1']->woovi_status);
+        $this->assertSame(DisputeStatus::PENDING_SELLER, $cases['cb-1']->status);
+        $this->assertSame(0, DisputeEvent::query()->where('event', DisputeEventType::WOOVI_STATUS_CHANGED->value)->count());
+
+        // A releitura do chargeback (o GET devolveu o MED) veio da listagem do dia em que ele abriu.
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/api/v1/dispute?')
+            && ($request->data()['start'] ?? null) === $cases['cb-1']->opened_at->copy()->subDay()->toIso8601ZuluString());
     }
 
     public function test_one_account_failing_does_not_stop_the_others(): void

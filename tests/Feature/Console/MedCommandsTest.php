@@ -87,6 +87,27 @@ class MedCommandsTest extends TestCase
             && ($request->data()['start'] ?? null) === $cases['cb-1']->opened_at->copy()->subDay()->toIso8601ZuluString());
     }
 
+    public function test_scoreboard_shows_answered_results_and_what_is_still_open(): void
+    {
+        Dispute::factory()->count(2)->create(['status' => DisputeStatus::EVIDENCE_SENT, 'evidence_sent_at' => now()->subDay()]);
+        Dispute::factory()->create(['status' => DisputeStatus::REJECTED, 'woovi_status' => 'REJECTED', 'evidence_sent_at' => now()->subDays(2), 'closed_at' => now()->subHour(), 'merchant' => ['trade_name' => 'Mega Store']]);
+        Dispute::factory()->create(['status' => DisputeStatus::ACCEPTED, 'woovi_status' => 'ACCEPTED', 'evidence_sent_at' => now()->subDays(2), 'closed_at' => now()->subDays(3)]);
+        Dispute::factory()->create(['opened_at' => now()->subHours(2)]);
+        Dispute::factory()->create(['opened_at' => now()->subDays(5)]);
+
+        $this->artisan('med:placar')
+            ->expectsOutputToContain('Respondidos à Woovi desde')
+            ->expectsOutputToContain('aguardando decisão        2 · R$ 300,00')
+            ->expectsOutputToContain('ganhos                    1 · R$ 150,00')
+            ->expectsOutputToContain('perdidos                  1 · R$ 150,00')
+            ->expectsOutputToContain('taxa de ganho: 50% dos decididos')
+            ->expectsOutputToContain('no prazo da Woovi         1 · R$ 150,00')
+            ->expectsOutputToContain('prazo vencido             1 · R$ 150,00')
+            ->expectsOutputToContain('Decisões nas respondidas, últimas 24h: 1')
+            ->expectsOutputToContain('Mega Store - Contestação rejeitada')
+            ->assertSuccessful();
+    }
+
     public function test_one_account_failing_does_not_stop_the_others(): void
     {
         $broken = WooviAccount::factory()->create(['app_id' => 'chave-quebrada']);

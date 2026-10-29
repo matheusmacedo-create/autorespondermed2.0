@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Widgets\MedOverviewWidget;
+use App\Filament\Widgets\MedResultsWidget;
 use App\Http\Middleware\SetPanelLocale;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -57,6 +58,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->widgets([
                 MedOverviewWidget::class,
+                MedResultsWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,

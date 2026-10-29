@@ -464,6 +464,8 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 - **2026-10-29** - um caso por disputa da Woovi, não por Pix (2.5); GET só por endToEndId e devolve a mais
   antiga; webhook real traz `id` e `type` (2.2).
+- **2026-10-29** - placar das respostas no painel e `med:placar`: ganho/perdido só conta o que foi respondido
+  (`evidence_sent_at`); o decidido sem resposta nossa fica à parte, para comparar.
 - **2026-10-26** - rota de venda no ar (`vps1.unicopag.com.br/api/med/sales/lookup`, chave `med_`); janela de
   14 dias, `med:podar`, aviso ao lojista desligado, defesa com IA automática e fila pelo lojista (seção 11).
 - **2026-10-25** - lojista do caso pela venda (`seller` + `account_id`), busca sem conta, aviso ao lojista da venda (8.1).

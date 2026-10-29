@@ -33,7 +33,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   (pagador diferente do cliente, venda não localizada, KYC não aprovado, IA "não defender") só com
   `MED_DEFENDER_NAO_RECOMENDADOS` (decisão da operação em 28/10/2026). `MED_RESPOSTA_AUTOMATICA` roda isso de hora
   em hora (minuto 20) como sistema e pede rascunho novo a quem só falta o rascunho. `med:resultados` cruza as
-  decisões da Woovi com a recomendação da IA no envio (guardada no evento) e por loja.
+  decisões da Woovi com a recomendação da IA no envio (guardada no evento) e por loja. `med:placar` é o placar em
+  texto (respondidos, aguardando, ganhos e perdidos em R$, o que ficou sem resposta) - a mesma conta
+  (`App\Support\MedScoreboard`) do widget "Resultado das respostas" do painel.
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 

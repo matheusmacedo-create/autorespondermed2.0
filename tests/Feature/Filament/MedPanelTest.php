@@ -8,6 +8,7 @@ use App\Filament\Resources\Disputes\Pages\ListDisputes;
 use App\Filament\Resources\Disputes\Pages\ViewDispute;
 use App\Filament\Resources\WooviAccounts\Pages\CreateWooviAccount;
 use App\Filament\Resources\WooviAccounts\Pages\EditWooviAccount;
+use App\Filament\Widgets\MedResultsWidget;
 use App\Mail\DisputeOpenedMail;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
@@ -44,6 +45,25 @@ class MedPanelTest extends TestCase
         Livewire::test(ListDisputes::class)
             ->assertOk()
             ->assertCountTableRecords(3);
+    }
+
+    public function test_results_widget_counts_only_what_we_answered(): void
+    {
+        Dispute::factory()->count(2)->create(['status' => DisputeStatus::EVIDENCE_SENT, 'evidence_sent_at' => now()->subDay()]);
+        Dispute::factory()->create(['status' => DisputeStatus::REJECTED, 'woovi_status' => 'REJECTED', 'evidence_sent_at' => now()->subDays(2), 'closed_at' => now()]);
+        Dispute::factory()->create(['status' => DisputeStatus::ACCEPTED, 'woovi_status' => 'ACCEPTED', 'evidence_sent_at' => now()->subDays(2), 'closed_at' => now()]);
+        // Decidido sem defesa nossa: fica só na comparação.
+        Dispute::factory()->create(['status' => DisputeStatus::REJECTED, 'woovi_status' => 'REJECTED', 'closed_at' => now()]);
+
+        Livewire::test(MedResultsWidget::class)
+            ->assertOk()
+            ->assertSeeInOrder(['Respondidos à Woovi', '4', 'R$ 600,00'])
+            ->assertSeeInOrder(['Aguardando decisão', '2', 'R$ 300,00'])
+            ->assertSeeInOrder(['Ganhos', '1', 'R$ 150,00 mantidos · 50% dos decididos'])
+            ->assertSeeInOrder(['Perdidos', '1', 'R$ 150,00 devolvidos ao pagador'])
+            ->assertSee('a Woovi decidiu 1 MED(s) da janela - 1 ganho(s) e 0 perdido(s)');
+
+        $this->get('/admin')->assertOk()->assertSee('Resultado das respostas');
     }
 
     public function test_case_page_shows_the_defense_evidence_and_timeline(): void

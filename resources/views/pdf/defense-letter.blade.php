@@ -51,7 +51,11 @@
         </p>
     @endif
 
-    <p>Diante do exposto, solicitamos que o presente pedido de devolução seja indeferido, por não se enquadrar na finalidade do MED.</p>
+    @if (strtoupper((string) $dispute->type) === 'MED' || blank($dispute->type))
+        <p>Diante do exposto, solicitamos que o presente pedido de devolução seja indeferido, por não se enquadrar na finalidade do MED.</p>
+    @else
+        <p>Diante do exposto, solicitamos que a presente contestação seja indeferida e o valor mantido com o recebedor, por se tratar de venda regular, conforme os fatos e evidências em anexo.</p>
+    @endif
 
     <p style="margin-top: 16px">Atenciosamente,</p>
     <p><em>{{ $signature }}</em></p>

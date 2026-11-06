@@ -68,14 +68,16 @@ class RespondDisputesCommandTest extends TestCase
         $ok = $this->ready();
         $this->ready(['ai_defense' => ['recommendation' => 'nao_defender', 'rules_version' => 2]]);
         $this->ready(['ai_defense' => ['recommendation' => 'defender']]);
-        $this->ready(['type' => 'CHARGEBACK']);
+        $this->ready(['type' => 'DISPUTE']);
+        $chargeback = $this->ready(['type' => 'CHARGEBACK']);
 
         $this->artisan('med:responder')
             ->expectsOutputToContain("#{$ok->id} R$ 150,00")
             ->expectsOutputToContain('IA não recomenda defender')
             ->expectsOutputToContain('rascunho da IA ausente ou de regras antigas')
-            ->expectsOutputToContain('não é MED (CHARGEBACK)')
-            ->expectsOutputToContain('1 de 4 prontos para responder.')
+            ->expectsOutputToContain('tipo de disputa sem defesa automática (DISPUTE)')
+            ->expectsOutputToContain("#{$chargeback->id} R$ 150,00 sem lojista - PRONTO")
+            ->expectsOutputToContain('2 de 5 prontos para responder.')
             ->assertSuccessful();
 
         Http::assertNotSent(fn (Request $r): bool => str_ends_with($r->url(), '/evidence'));

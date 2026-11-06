@@ -29,7 +29,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   prontos e relê cada caso na Woovi antes; sem `--confirmar` só lista e diz por que cada caso fica. Nunca sai: dado
   incoerente (transação não conferida, valor contestado ou da venda diferente do Pix, devolução feita), rascunho de
   regras antigas (`RULES_VERSION`), prazo da Woovi (`MED_PRAZO_WOOVI_HORAS`, 96h) vencido, caso que a Woovi já
-  recusou por prazo ou que falhou 3 vezes em 24h, loja com captura de política em andamento, chargeback. Caso fraco
+  recusou por prazo ou que falhou 3 vezes em 24h, loja com captura de política em andamento. Chargeback sai igual ao
+  MED (decisão da operação em 06/11/2026; a carta fecha pedindo o indeferimento da contestação). Caso fraco
   (pagador diferente do cliente, venda não localizada, KYC não aprovado, IA "não defender") só com
   `MED_DEFENDER_NAO_RECOMENDADOS` (decisão da operação em 28/10/2026). `MED_RESPOSTA_AUTOMATICA` roda isso de hora
   em hora (minuto 20) como sistema e pede rascunho novo a quem só falta o rascunho. `med:resultados` cruza as

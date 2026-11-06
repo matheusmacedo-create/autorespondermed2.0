@@ -462,6 +462,8 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-11-06** - chargeback passa a ser defendido como o MED (`med:responder`), a pedido da operação: o único
+  dinheiro perdido desde 26/10 foi um chargeback sem resposta (Pix do #273, R$ 193,91).
 - **2026-10-29** - um caso por disputa da Woovi, não por Pix (2.5); GET só por endToEndId e devolve a mais
   antiga; webhook real traz `id` e `type` (2.2).
 - **2026-10-29** - placar das respostas no painel e `med:placar`: ganho/perdido só conta o que foi respondido

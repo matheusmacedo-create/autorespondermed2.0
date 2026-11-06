@@ -53,6 +53,9 @@ class RespondDisputesCommand extends Command
         'no_refund' => 'devoluções não conferidas (Pix sem cobrança)',
     ];
 
+    /** Tipos de disputa que a rodada responde. */
+    private const TYPES = ['MED', 'CHARGEBACK'];
+
     private const MAX_FAILURES_PER_DAY = 3;
 
     private const DRAFT_BLOCKER = 'rascunho da IA ausente ou de regras antigas';
@@ -162,8 +165,9 @@ class RespondDisputesCommand extends Command
             $blockers[] = 'status '.$dispute->status->label();
         }
 
-        if (strtoupper((string) $dispute->type) !== 'MED') {
-            $blockers[] = "não é MED ({$dispute->type})";
+        // MED e chargeback se defendem igual (decisão da operação em 06/11/2026).
+        if (! in_array(strtoupper((string) $dispute->type), self::TYPES, true)) {
+            $blockers[] = "tipo de disputa sem defesa automática ({$dispute->type})";
         }
 
         if ($dispute->dossier_match === null || $status('transaction_found') !== MatchDossierAction::OK) {

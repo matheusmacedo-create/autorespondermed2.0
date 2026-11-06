@@ -30,8 +30,9 @@ class GenerateAiDefenseAction
      * 2: prazo de loja só com a política capturada do site ou o padrão confirmado.
      * 3: caso contestado por decisão da operação (pagador diferente do cliente, venda
      *    não localizada) não afirma legitimidade nem ausência de indício de fraude.
+     * 4: chargeback não cita o MED como base da defesa.
      */
-    public const RULES_VERSION = 3;
+    public const RULES_VERSION = 4;
 
     public function __construct(
         private readonly DefenseWriter $writer,

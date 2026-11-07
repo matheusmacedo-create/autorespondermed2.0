@@ -61,9 +61,12 @@ MED_WHATSAPP_TEMPLATE=<nome do template aprovado na Meta>
 MED_DOSSIE_HABILITADO=false
 MED_ENVIO_AUTOMATICO=false
 UNICOPAG_API_KEY=<chave de uma integração "med" só de leitura no unico-api>
-UNICOPAG_SALE_ENDPOINT=<rota de venda, quando o unico-api a criar>
+UNICOPAG_SALE_ENDPOINT="/api/med/sales/lookup?correlation_id={correlation_id}&end_to_end_id={end_to_end_id}&txid={txid}"
 
 WOOVI_BASE_URL=https://api.woovi.com
+# Aplicativo da conta mestre/parceira criado só para o MED (escopos PARTNER_COMPANY_GET_LIST e
+# PARTNER_APPLICATION_POST - não reaproveitar a chave do unico-api). Subcontas entram de hora em hora.
+WOOVI_MASTER_APP_ID=<AppID do aplicativo de parceiro do MED>
 WOOVI_WEBHOOK_VERIFY_SIGNATURE=true
 WOOVI_EVIDENCE_MODE=file_id
 MED_PRAZO_RESPOSTA_HORAS=72
@@ -87,6 +90,22 @@ O webhook da Woovi só grava a chamada e enfileira; quem processa é o worker. S
 - Diretório: `/home/forge/med.unicopag.com.br/current`
 - Usuário: `forge`, 1 processo.
 
+## 5.1 Navegador para o print das políticas das lojas (uma vez por servidor)
+
+O MED abre o site de cada loja e guarda em PDF as páginas de entrega, termos e trocas
+(`scripts/capture-store.cjs`). Precisa de Node (o Forge já instala) e do Chromium sem tela em
+`storage/browser`, que é compartilhado entre os releases:
+
+```bash
+cd /home/forge/med.unicopag.com.br/current/storage && mkdir -p browser && cd browser
+npm init -y && npm i playwright-core@1.49.1
+PLAYWRIGHT_BROWSERS_PATH=$PWD/ms-playwright npx -y playwright@1.49.1 install chromium-headless-shell
+```
+
+As bibliotecas de sistema do Chromium pedem root: recipe do Forge "MED - dependências do Chromium" (usuário
+`root`), que roda `npx playwright@1.49.1 install-deps chromium-headless-shell` - só fontes e libs gráficas.
+Sem isso a captura fica desligada sozinha (`NodeStoreCapturer::isAvailable()`) e o resto do MED segue.
+
 ## 6. Agendador (Server → Scheduler)
 
 - Comando: `php8.4 /home/forge/med.unicopag.com.br/current/artisan schedule:run`
@@ -108,7 +127,12 @@ novo depois de qualquer mudança de ambiente.
 
 ## 8. Ligar as contas
 
-1. Cadastrar as contas Woovi (painel ou `PUT /api/woovi-accounts` pelo unico-api).
+1. Com `WOOVI_MASTER_APP_ID` definido: `php artisan med:importar-contas` - lista as subcontas pela API de
+   parceiro, cria o aplicativo do MED em cada uma, cadastra os webhooks e traz os MEDs dos últimos 90 dias.
+   Depois roda sozinho de hora em hora (cron); duas execuções nunca correm juntas (trava própria).
+   Antes, toda conta ativa já cadastrada precisa ter CPF/CNPJ: sem ele a importação não cria nenhuma conta
+   (avisa no Discord), porque não teria como saber se a subconta já está aqui. Sem a conta mestre: cadastrar as contas no painel ou pelo
+   unico-api (`PUT /api/woovi-accounts`) e seguir os passos 2 e 3.
 2. `php artisan med:registrar-webhooks` - cadastra os eventos `OPENPIX:DISPUTE_*` de cada conta.
 3. `php artisan med:sincronizar --dias=90` - traz os MEDs que já existiam.
 4. Com a Kapso configurada: `php artisan med:registrar-webhook-kapso` (uma vez).

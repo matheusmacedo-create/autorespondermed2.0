@@ -41,7 +41,7 @@ class WhatsAppNotifier
             return false;
         }
 
-        $recipient = KapsoClient::recipient($dispute->wooviAccount->contact_phone);
+        $recipient = KapsoClient::recipient($dispute->seller()['phone']);
 
         if ($recipient === null) {
             $this->events->record(DisputeEventType::SELLER_NOTIFICATION_FAILED, $dispute, 'WhatsApp não enviado: conta sem celular brasileiro válido.', ['channel' => 'whatsapp'], level: 'warning');
@@ -105,7 +105,7 @@ class WhatsAppNotifier
 
     private function sendTemplate(Dispute $dispute, string $recipient): bool
     {
-        $firstName = Str::of((string) ($dispute->wooviAccount->contact_name ?: $dispute->wooviAccount->name))->trim()->before(' ')->title()->value();
+        $firstName = Str::of((string) ($dispute->seller()['contact_name'] ?: $dispute->seller()['name']))->trim()->before(' ')->title()->value();
 
         try {
             $wamid = $this->kapso->sendTemplate(

@@ -134,6 +134,49 @@ class WooviWebhookTest extends TestCase
         $this->assertSame(2, Dispute::count());
     }
 
+    public function test_second_dispute_of_the_same_pix_is_a_new_case_and_each_decision_closes_only_its_own(): void
+    {
+        // Formato real do webhook: traz id e type (o exemplo da doc não traz).
+        $med = ['id' => 'med-a', 'type' => 'MED'];
+        $chargeback = ['id' => 'cb-b', 'type' => 'CHARGEBACK'];
+
+        $this->postWooviWebhook($this->account->webhook_key, $this->createdPayload($med))->assertOk();
+        $this->postWooviWebhook($this->account->webhook_key, $this->createdPayload($med))->assertOk();
+        $this->postWooviWebhook($this->account->webhook_key, $this->createdPayload($chargeback))->assertOk();
+
+        $this->postWooviWebhook($this->account->webhook_key, [
+            'event' => 'OPENPIX:DISPUTE_REJECTED',
+            'dispute' => $this->createdPayload(['status' => 'REJECTED'] + $med)['dispute'],
+        ])->assertOk();
+
+        $cases = Dispute::query()->get()->keyBy('woovi_dispute_id');
+        $this->assertCount(2, $cases);
+        $this->assertSame(DisputeStatus::REJECTED, $cases['med-a']->status);
+        $this->assertSame('CHARGEBACK', $cases['cb-b']->type);
+        $this->assertSame(DisputeStatus::PENDING_SELLER, $cases['cb-b']->status);
+        $this->assertSame('OPENED', $cases['cb-b']->woovi_status);
+    }
+
+    public function test_webhook_without_id_does_not_guess_between_two_cases_of_the_same_pix(): void
+    {
+        $e2e = $this->createdPayload()['dispute']['endToEndId'];
+        Dispute::factory()->for($this->account)->count(2)->sequence(['woovi_dispute_id' => 'antigo'], ['woovi_dispute_id' => 'novo'])->create(['end_to_end_id' => $e2e]);
+
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postWooviWebhook($this->account->webhook_key, [
+                'event' => 'OPENPIX:DISPUTE_ACCEPTED',
+                'dispute' => $this->createdPayload(['status' => 'ACCEPTED'])['dispute'],
+            ]);
+        } catch (\InvalidArgumentException) {
+            // A fila síncrona dos testes propaga a exceção do job.
+        }
+
+        $this->assertSame(0, Dispute::query()->where('status', DisputeStatus::ACCEPTED->value)->count());
+        $this->assertStringContainsString('sem id', (string) WooviWebhookCall::sole()->error);
+    }
+
     public function test_dispute_rejected_closes_the_case_in_favor_of_the_seller(): void
     {
         $this->postWooviWebhook($this->account->webhook_key, $this->createdPayload())->assertOk();

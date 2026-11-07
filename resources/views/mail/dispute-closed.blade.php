@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <body style="font-family: Arial, sans-serif; color: #1c3154; line-height: 1.5;">
-    <p>Olá{{ $dispute->wooviAccount->contact_name ? ', '.$dispute->wooviAccount->contact_name : '' }}!</p>
+    <p>Olá{{ $dispute->seller()['contact_name'] ? ', '.$dispute->seller()['contact_name'] : '' }}!</p>
 
     <p>A contestação de Pix de <strong>{{ $dispute->formattedValue() }}</strong> recebida pela conta
-        <strong>{{ $dispute->wooviAccount->name }}</strong> foi encerrada.</p>
+        <strong>{{ $dispute->seller()['name'] }}</strong> foi encerrada.</p>
 
     @if ($dispute->status === \App\Enums\DisputeStatus::REJECTED)
         <p><strong>Resultado: a devolução foi recusada.</strong> O valor permanece na sua conta.</p>

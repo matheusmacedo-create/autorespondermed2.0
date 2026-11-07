@@ -22,6 +22,9 @@ class Dispute extends Model
     /** @use HasFactory<DisputeFactory> */
     use HasFactory;
 
+    /** Loja do lojista, lida uma vez por instância ({@see merchantStore()}). */
+    private ?MerchantStore $merchantStore = null;
+
     protected $fillable = [
         'woovi_account_id',
         'end_to_end_id',
@@ -46,6 +49,11 @@ class Dispute extends Model
         'seller_submitted_at',
         'seller_submission_metadata',
         'analyst_notes',
+        'ai_defense',
+        'ai_defense_generated_at',
+        'defense_text',
+        'merchant_account_id',
+        'merchant',
         'complement_request',
         'reviewed_by',
         'evidence_sent_at',
@@ -78,6 +86,9 @@ class Dispute extends Model
             'dossier_built_at' => 'datetime',
             'dossier_match' => 'array',
             'seller_details' => 'array',
+            'ai_defense' => 'array',
+            'merchant' => 'array',
+            'ai_defense_generated_at' => 'datetime',
             'raw' => 'array',
         ];
     }
@@ -92,6 +103,82 @@ class Dispute extends Model
     public static function newToken(): string
     {
         return Str::random(48);
+    }
+
+    /**
+     * Conta do lojista na plataforma (accounts.id do unico-api): a da venda do caso
+     * e, sem ela, a da conta Woovi (subconta de um seller só).
+     */
+    public function platformAccountId(): string
+    {
+        return (string) ($this->merchant_account_id ?: $this->wooviAccount?->unicopag_account_id);
+    }
+
+    /**
+     * Lojista que recebeu o Pix e é avisado do MED: o da venda (unico-api) e, sem
+     * ela, o contato da conta Woovi.
+     *
+     * @return array{name: ?string, tax_id: ?string, contact_name: ?string, email: ?string, phone: ?string}
+     */
+    public function seller(): array
+    {
+        $merchant = (array) ($this->merchant ?? []);
+        $account = $this->wooviAccount;
+
+        return [
+            'name' => ($merchant['name'] ?? null) ?: $account?->name,
+            'tax_id' => ($merchant['tax_id'] ?? null) ?: $account?->tax_id,
+            'contact_name' => ($merchant['contact_name'] ?? null) ?: $account?->contact_name,
+            'email' => ($merchant['email'] ?? null) ?: $account?->contact_email,
+            'phone' => ($merchant['phone'] ?? null) ?: $account?->contact_phone,
+        ];
+    }
+
+    /**
+     * Nome do lojista para a tela: o nome fantasia da venda, depois a razão social
+     * da venda. Null quando a venda não identificou o lojista (na conta mestre o
+     * nome da conta Woovi seria a própria ÚnicoPag).
+     */
+    public function merchantName(): ?string
+    {
+        return data_get($this->merchant, 'trade_name') ?: data_get($this->merchant, 'name') ?: null;
+    }
+
+    /**
+     * Quando o Pix foi pago: a hora da transação na Woovi, ou a data da venda.
+     */
+    public function paidAt(): ?Carbon
+    {
+        $time = data_get($this->sourcePayload(DossierSource::WOOVI_TRANSACTION), 'time')
+            ?? data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'paid_at')
+            ?? data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'created_at');
+
+        return is_string($time) ? rescue(fn () => Carbon::parse($time), null, report: false) : null;
+    }
+
+    /**
+     * Produtos do pedido, pela venda na plataforma ("Óculos | Compre 1 Leve 2 (x2)").
+     */
+    public function products(): ?string
+    {
+        $items = collect((array) data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'order.items', []))
+            ->filter(fn ($item): bool => is_array($item) && filled($item['name'] ?? null))
+            ->map(fn (array $item): string => trim((string) $item['name']).((int) ($item['quantity'] ?? 1) > 1 ? ' (x'.(int) $item['quantity'].')' : ''));
+
+        return $items->isEmpty() ? null : mb_substr($items->implode('; '), 0, 300);
+    }
+
+    public function merchantStore(): ?MerchantStore
+    {
+        if (blank($this->merchant_account_id)) {
+            return null;
+        }
+
+        if ($this->merchantStore?->merchant_account_id !== $this->merchant_account_id) {
+            $this->merchantStore = MerchantStore::query()->where('merchant_account_id', $this->merchant_account_id)->first();
+        }
+
+        return $this->merchantStore;
     }
 
     public function wooviAccount(): BelongsTo
@@ -144,6 +231,41 @@ class Dispute extends Model
     public function scopeOpen(Builder $query): void
     {
         $query->whereIn('status', DisputeStatus::openValues());
+    }
+
+    /**
+     * MEDs abertos dentro da janela de trabalho (`med.janela_dias`; 0 = todos).
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeInWindow(Builder $query): void
+    {
+        if (($start = self::windowStart()) !== null) {
+            $query->where('opened_at', '>=', $start);
+        }
+    }
+
+    /**
+     * Ainda pedem defesa (aberto ou com resposta do lojista) e o prazo interno não
+     * venceu. O vencido fica fora da fila de trabalho (aba "Prazo vencido").
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeToDefend(Builder $query, bool $overdue = false): void
+    {
+        $query->whereIn('status', [DisputeStatus::PENDING_SELLER->value, DisputeStatus::SELLER_SUBMITTED->value])
+            ->when(
+                $overdue,
+                fn (Builder $query) => $query->where('respond_by', '<', now()),
+                fn (Builder $query) => $query->where(fn (Builder $query) => $query->whereNull('respond_by')->orWhere('respond_by', '>=', now())),
+            );
+    }
+
+    public static function windowStart(): ?Carbon
+    {
+        $days = (int) config('med.janela_dias');
+
+        return $days > 0 ? now()->subDays($days)->startOfDay() : null;
     }
 
     public function isTokenExpired(): bool

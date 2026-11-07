@@ -16,6 +16,27 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   Sistema > Usuários). Demo local: `php artisan db:seed --class=MedDemoSeeder`.
 - Agendados (precisam do cron `schedule:run`): `med:sincronizar` (de hora em hora) e `med:alertar-prazos`.
 - `med:registrar-webhooks` cadastra os eventos `OPENPIX:DISPUTE_*` nas contas Woovi.
+- `med:importar-contas` (de hora em hora, com `WOOVI_MASTER_APP_ID`): lista as subcontas pela API de parceiro
+  da Woovi, cria em cada uma um aplicativo só com os escopos do MED e já liga webhooks e MEDs. Conta que já
+  existe nunca ganha chave nova (o `POST /partner/application` não é idempotente); conta ativa sem CPF/CNPJ
+  trava a criação; nunca há aplicativo "sem escopos" (acesso total).
+- Janela de trabalho (`MED_JANELA_DIAS`, 14): fila, painel, sincronização e `med:montar-dossie --abertos` só
+  veem os MEDs abertos nesse período (`Dispute::inWindow()`). `med:podar --confirmar [--conta=ID]` apaga os de
+  fora e as contas de demonstração; caso já enviado à Woovi nunca sai.
+- Aviso ao lojista desligado (`MED_AVISO_LOJISTA=false`): nem e-mail nem WhatsApp até a operação estar
+  organizada; `SellerNotifier::enabled()` corta todos os caminhos e esconde as ações de aviso da ficha.
+- `med:responder [--incluir-vencidos] [--automatico] [--usuario=email] [--confirmar]`: responde em lote os MEDs
+  prontos e relê cada caso na Woovi antes; sem `--confirmar` só lista e diz por que cada caso fica. Nunca sai: dado
+  incoerente (transação não conferida, valor contestado ou da venda diferente do Pix, devolução feita), rascunho de
+  regras antigas (`RULES_VERSION`), prazo da Woovi (`MED_PRAZO_WOOVI_HORAS`, 96h) vencido, caso que a Woovi já
+  recusou por prazo ou que falhou 3 vezes em 24h, loja com captura de política em andamento. Chargeback sai igual ao
+  MED (decisão da operação em 06/11/2026; a carta fecha pedindo o indeferimento da contestação). Caso fraco
+  (pagador diferente do cliente, venda não localizada, KYC não aprovado, IA "não defender") só com
+  `MED_DEFENDER_NAO_RECOMENDADOS` (decisão da operação em 28/10/2026). `MED_RESPOSTA_AUTOMATICA` roda isso de hora
+  em hora (minuto 20) como sistema e pede rascunho novo a quem só falta o rascunho. `med:resultados` cruza as
+  decisões da Woovi com a recomendação da IA no envio (guardada no evento) e por loja. `med:placar` é o placar em
+  texto (respondidos, aguardando, ganhos e perdidos em R$, o que ficou sem resposta) - a mesma conta
+  (`App\Support\MedScoreboard`) do widget "Resultado das respostas" do painel.
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 
@@ -24,7 +45,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - `app/Services/Woovi/` - cliente da API e verificação da assinatura do webhook.
 - `app/Livewire/Med/SellerDefenseForm.php` - formulário público `/med/{token}`.
 - `app/Filament/Resources/Disputes` (fila e ficha) e `WooviAccounts` (contas e AppIDs).
-- `routes/api.php` - webhook da Woovi (um por conta) e a ponte com o unico-api (X-API-Key).
+- `routes/api.php` - webhook da Woovi (um por conta), a ponte com o unico-api (X-API-Key) e as rotas de leitura do
+  RiskOps do KYC (`/api/riskops/disputas`, chave própria `RISKOPS_API_KEY`; conta = `Dispute::platformAccountId()`,
+  porque na conta mestre a conta Woovi não tem `unicopag_account_id`; nunca dado do pagador).
 
 ## Permissões
 - spatie/laravel-permission, como o KYC. Catálogo em `app/Support/Permissions.php` (papéis Super Admin, Admin,
@@ -41,18 +64,45 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 
 ## Dossiê automático
 - Ao receber o MED, `BuildDossierAction` puxa Woovi (transação, cobrança, devoluções, comprovante), unico-api
-  (venda - rota ainda a criar - e cadastro) e KYC (status), gera evidências `uploaded_by=system` e roda a
+  (venda por `/api/med/sales/lookup` e cadastro) e KYC (status), gera evidências `uploaded_by=system` e roda a
   conferência (`MatchDossierAction`). Na defesa do seller, `ProcessSellerDefense` completa, reconfere e decide o
   envio automático (`AutoSendDisputeAction`, com travas). Detalhes e contrato do unico-api: KB seção 8.
 - Documento gerado só muda pelo `StoreSystemEvidence` (troca o correlationID quando o conteúdo muda; o que foi
   enviado nunca muda). Só item ok da conferência vai para a carta. PII do pagador: payload criptografado,
   PDFs mascarados (`App\Support\Mask`), nada no link público nem no Discord.
+- Conta mestre: todos os MEDs caem numa conta Woovi só. O lojista do caso vem da venda (`seller` + `account_id`,
+  guardado em `disputes.merchant`/`merchant_account_id`); aviso, carta, link e IA usam `Dispute::seller()`, nunca
+  o contato da conta direto. Cadastro e KYC usam `Dispute::platformAccountId()`.
+
+## Lojas (políticas do site)
+- `MerchantStoreAction`: no fim da montagem do dossiê acha o site do lojista (cadastro do unico-api
+  `register.website`, depois KYC `KYC_STORE_ENDPOINT`, depois venda), captura entrega/termos/trocas em PDF uma
+  vez por loja (`CaptureMerchantStore`, Chromium em `storage/browser`, doc/DEPLOY_FORGE.md 5.1), anexa como
+  evidência `store_policy` e a IA lê o texto. Recaptura depois de `MED_LOJAS_RECAPTURAR_DIAS`. Tela "Lojas" no
+  painel para corrigir a URL. O script bloqueia rede interna (a URL vem de cadastro de terceiro).
+
+## Defesa com IA
+- Com `MED_IA_AUTOMATICA`, o fim da montagem do dossiê já enfileira o rascunho (uma vez por caso).
+- Carta no formato da Compliance (`config('med.defesa')`): cabeçalho (requerente mascarado, data, valor, produto),
+  corpo = `defense_text`, canais oficiais, pedido de indeferimento, "Compliance Único Pag"; fatos e evidências
+  em anexo. A IA escreve só o corpo, no estilo do modelo real que está no `ClaudeDefenseWriter`, com os dias úteis
+  entre o pagamento e o MED (`BusinessDays`). Prazo ou "política da loja" só com a política capturada do site ou
+  com `MED_POLITICA_PADRAO_CONFIRMADA` - a carta vai ao banco, política não conferida não pode ser afirmada. Mudou
+  regra do que a carta afirma: suba `RULES_VERSION`.
+- "Gerar defesa com IA" na ficha (job `GenerateAiDefense`, aviso no sininho): `GenerateAiDefenseAction` monta o caso
+  só com fatos ok da conferência, pendências, evidências, relato do seller e - com a feature "MED API" - o relato
+  de quem contestou (`/funds-recovery/{id}/infraction-reports`); `ClaudeDefenseWriter` (SDK oficial, JSON Schema,
+  `fallbacks: 'default'`) devolve narrativa, argumentos, pontos fracos, provas que faltam e recomendação.
+- Nada vai à Woovi pela IA: o texto (`disputes.defense_text`) é do analista, entra na carta como "Defesa da
+  ÚnicoPag" e sai pelo "Enviar à Woovi" de sempre. Rascunho novo nunca sobrescreve texto editado. Nenhum dado
+  do pagador vai ao modelo. Testes trocam o `DefenseWriter` por um falso (o SDK não passa pelo `Http::fake`).
 
 ## Armadilhas
 - O webhook de disputa da Woovi **não diz de qual conta veio**: a conta sai da `webhook_key` na URL. Não
   troque por uma URL única.
-- O caso é identificado pelo `endToEndId` (é o que o `GET /dispute/{id}` aceita); o `id` interno da Woovi
-  nem sempre vem.
+- Um caso é uma disputa da Woovi (`woovi_dispute_id`), não um Pix: o mesmo `endToEndId` pode ter MED e
+  chargeback, ou um MED cancelado e outro aberto depois. O `GET /dispute/{id}` só aceita o `endToEndId` e devolve a
+  disputa mais antiga do Pix - nunca aplique o que ele devolve sem conferir o `id` (KB 2.5).
 - Na Woovi, `ACCEPTED` = devolução aceita (seller **perdeu**); `REJECTED` = contestação recusada (seller
   **ganhou**). O enum `DisputeStatus` documenta isso - não inverter nos textos.
 - Verifique a assinatura sobre o **corpo bruto** (`$request->getContent()`), nunca sobre JSON reserializado.

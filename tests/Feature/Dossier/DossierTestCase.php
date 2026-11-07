@@ -109,6 +109,7 @@ abstract class DossierTestCase extends TestCase
             'unico-api.test/api/kyc-panel/accounts/*/register' => $f['register'],
             'files.unicopag.test/*' => $f['invoice'],
             'kyc.test/api/onboarding/status*' => $f['kyc'],
+            'kyc.test/api/med/stores/*' => $f['kyc_store'] ?? Http::response([], 404),
         ]);
     }
 

@@ -2,13 +2,17 @@
 
 namespace App\Filament\Resources\Disputes\Schemas;
 
+use App\Actions\Med\GenerateAiDefenseAction;
 use App\Actions\Med\MatchDossierAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
 use App\Enums\DossierSource;
 use App\Enums\SourceStatus;
+use App\Filament\Resources\MerchantStores\MerchantStoreResource;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
+use App\Models\MerchantStore;
+use App\Services\SellerNotifier;
 use App\Support\TaxId;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -52,7 +56,51 @@ class DisputeInfolist
                                 TextEntry::make('end_to_end_id')->label('endToEndId')->copyable()->columnSpanFull(),
                             ]),
 
-                        Section::make('Defesa do seller')
+                        Section::make('Defesa da ÚnicoPag')
+                            ->description('Texto que vai na carta enviada à Woovi. A IA redige o rascunho; quem decide é o analista.')
+                            ->schema([
+                                TextEntry::make('ai_recommendation')
+                                    ->label('Recomendação da IA')
+                                    ->state(fn (Dispute $record): ?string => $record->ai_defense
+                                        ? ucfirst(GenerateAiDefenseAction::recommendationLabel(data_get($record->ai_defense, 'recommendation')))
+                                        : null)
+                                    ->helperText(fn (Dispute $record): ?string => data_get($record->ai_defense, 'recommendation_reason'))
+                                    ->badge()
+                                    ->color(fn (Dispute $record): string => match (data_get($record->ai_defense, 'recommendation')) {
+                                        'defender' => 'success',
+                                        'defender_com_ressalvas' => 'warning',
+                                        'nao_defender' => 'danger',
+                                        default => 'gray',
+                                    })
+                                    ->placeholder('Sendo preparada: o rascunho sai depois da montagem do dossiê.'),
+                                TextEntry::make('defense_text')
+                                    ->label('Texto da defesa (vai na carta)')
+                                    ->placeholder('Sem texto. Use "Mais > Texto da defesa".')
+                                    ->extraAttributes(['class' => 'whitespace-pre-line']),
+                                TextEntry::make('ai_arguments')
+                                    ->label('Argumentos')
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->ai_defense, 'arguments', []))
+                                    ->listWithLineBreaks()->bulleted()
+                                    ->visible(fn (Dispute $record): bool => filled(data_get($record->ai_defense, 'arguments'))),
+                                TextEntry::make('ai_weaknesses')
+                                    ->label('Pontos fracos (o banco pode explorar)')
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->ai_defense, 'weaknesses', []))
+                                    ->listWithLineBreaks()->bulleted()->color('warning')
+                                    ->visible(fn (Dispute $record): bool => filled(data_get($record->ai_defense, 'weaknesses'))),
+                                TextEntry::make('ai_missing')
+                                    ->label('Provas que faltam')
+                                    ->state(fn (Dispute $record): array => (array) data_get($record->ai_defense, 'missing_evidence', []))
+                                    ->listWithLineBreaks()->bulleted()
+                                    ->visible(fn (Dispute $record): bool => filled(data_get($record->ai_defense, 'missing_evidence'))),
+                                TextEntry::make('ai_defense_generated_at')
+                                    ->label('Rascunho gerado em')
+                                    ->dateTime('d/m/Y H:i', 'America/Sao_Paulo')
+                                    ->helperText(fn (Dispute $record): ?string => data_get($record->ai_defense, 'model') ? 'Modelo: '.data_get($record->ai_defense, 'model').(data_get($record->ai_defense, 'used_claim') ? ' · usou o relato de quem contestou' : ' · sem o relato de quem contestou') : null)
+                                    ->placeholder('—'),
+                            ]),
+
+                        Section::make('Resposta do lojista')
+                            ->visible(fn (Dispute $record): bool => $record->seller_submitted_at !== null || filled($record->complement_request) || filled($record->analyst_notes))
                             ->schema([
                                 TextEntry::make('complement_request')
                                     ->label('Complemento pedido')
@@ -61,7 +109,7 @@ class DisputeInfolist
                                 TextEntry::make('seller_contact_name')->label('Enviada por')->placeholder('Ainda não enviada'),
                                 TextEntry::make('seller_submitted_at')->label('Enviada em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('—'),
                                 TextEntry::make('seller_details')
-                                    ->label('Informado pelo seller')
+                                    ->label('Informado pelo lojista')
                                     ->state(fn (Dispute $record): ?string => collect([
                                         'Pedido' => data_get($record->seller_details, 'order_reference'),
                                         'Rastreio' => data_get($record->seller_details, 'tracking_code'),
@@ -69,7 +117,7 @@ class DisputeInfolist
                                     ->visible(fn (Dispute $record): bool => filled($record->seller_details)),
                                 TextEntry::make('seller_statement')
                                     ->label('Relato')
-                                    ->placeholder('O seller ainda não mandou o relato.')
+                                    ->placeholder('O lojista ainda não mandou o relato.')
                                     ->extraAttributes(['class' => 'whitespace-pre-line']),
                                 TextEntry::make('analyst_notes')
                                     ->label('Parecer da ÚnicoPag (vai na carta de defesa)')
@@ -171,12 +219,30 @@ class DisputeInfolist
                 Grid::make(1)
                     ->columnSpan(1)
                     ->schema([
-                        Section::make('Seller')
+                        Section::make('Lojista')
                             ->schema([
-                                TextEntry::make('wooviAccount.name')->label('Conta'),
-                                TextEntry::make('wooviAccount.tax_id')->label('CPF/CNPJ')->formatStateUsing(fn (?string $state): ?string => TaxId::format($state))->placeholder('—'),
-                                TextEntry::make('wooviAccount.contact_email')->label('E-mail')->copyable()->placeholder('sem e-mail'),
-                                TextEntry::make('wooviAccount.contact_phone')->label('Telefone')->copyable()->placeholder('—'),
+                                TextEntry::make('seller_name')
+                                    ->label('Lojista')
+                                    ->state(fn (Dispute $record): string => $record->merchantName() ?? 'Não identificado')
+                                    ->color(fn (Dispute $record): ?string => $record->merchant ? null : 'danger')
+                                    ->weight('medium')
+                                    ->helperText(fn (Dispute $record): string => $record->merchant
+                                        ? 'Pela venda na plataforma'.($record->merchant_account_id ? " (conta {$record->merchant_account_id})" : '').' · conta Woovi: '.$record->wooviAccount->name
+                                        : 'Venda não localizada na plataforma pelo correlationID da cobrança. Conta Woovi: '.$record->wooviAccount->name),
+                                TextEntry::make('store_website')
+                                    ->label('Site da loja')
+                                    ->state(fn (Dispute $record): ?string => $record->merchantStore()?->website)
+                                    ->url(fn (Dispute $record): ?string => $record->merchantStore()?->website)
+                                    ->openUrlInNewTab()
+                                    ->color('primary')
+                                    ->helperText(fn (Dispute $record): ?string => ($store = $record->merchantStore()) === null ? null : MerchantStoreResource::statusLabel($store)
+                                        .(($kinds = collect((array) $store->captures)->map(fn (array $c): string => MerchantStore::SHORT[$c['kind']] ?? $c['kind'])->implode(', ')) !== '' ? ": {$kinds}." : '.'))
+                                    ->placeholder('Sem site: informe em Lojas.')
+                                    ->visible(fn (Dispute $record): bool => filled($record->merchant_account_id)),
+                                TextEntry::make('merchant_kyc')->label('KYC')->state(fn (Dispute $record): ?string => data_get($record->merchant, 'kyc_status'))->badge()->color('gray')->visible(fn (Dispute $record): bool => filled(data_get($record->merchant, 'kyc_status'))),
+                                TextEntry::make('seller_tax_id')->label('CPF/CNPJ')->state(fn (Dispute $record): ?string => TaxId::format($record->seller()['tax_id']))->placeholder('—'),
+                                TextEntry::make('seller_email')->label('E-mail')->state(fn (Dispute $record): ?string => $record->seller()['email'])->copyable()->placeholder('sem e-mail'),
+                                TextEntry::make('seller_phone')->label('Telefone')->state(fn (Dispute $record): ?string => $record->seller()['phone'])->copyable()->placeholder('—'),
                                 TextEntry::make('seller_link')
                                     ->label('Link da defesa')
                                     ->state(fn (Dispute $record): string => $record->sellerLink())
@@ -186,7 +252,7 @@ class DisputeInfolist
                                     ->helperText(fn (Dispute $record): string => $record->isTokenExpired()
                                         ? 'Link expirado.'
                                         : 'Vale até '.($record->token_expires_at?->timezone('America/Sao_Paulo')->format('d/m H:i') ?? 'o fim do caso').'.'),
-                                TextEntry::make('seller_notified_at')->label('Avisado em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('Não avisado'),
+                                TextEntry::make('seller_notified_at')->label('Avisado em')->visible(fn (): bool => SellerNotifier::enabled())->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('Não avisado'),
                                 TextEntry::make('seller_opened_at')->label('Abriu o link em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('Não abriu'),
                             ]),
 
@@ -202,7 +268,10 @@ class DisputeInfolist
                             ->schema([
                                 RepeatableEntry::make('events')
                                     ->hiddenLabel()
-                                    ->state(fn (Dispute $record) => $record->events()->with('user')->latest('occurred_at')->latest('id')->limit(50)->get())
+                                    ->state(fn (Dispute $record) => $record->events()->with('user')
+                                        // Releitura sem novidade (eventos antigos) não diz nada ao analista.
+                                        ->where('event', '!=', DisputeEventType::SYNCED->value)
+                                        ->latest('occurred_at')->latest('id')->limit(30)->get())
                                     ->schema([
                                         TextEntry::make('event')
                                             ->hiddenLabel()

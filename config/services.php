@@ -41,13 +41,35 @@ return [
         'base_url' => env('WOOVI_BASE_URL', 'https://api.woovi.com'),
         'timeout' => (int) env('WOOVI_TIMEOUT', 20),
 
+        // AppID de um aplicativo da conta mestre/parceira da ÚnicoPag criado SÓ para o
+        // MED, com os escopos PARTNER_COMPANY_GET_LIST e PARTNER_APPLICATION_POST. Não
+        // reaproveitar a chave do unico-api (acesso total). Com ele o
+        // `med:importar-contas` lista as subcontas (GET /partner/affiliate e
+        // /partner/company) e cria em cada uma um aplicativo só com os escopos do MED
+        // (POST /partner/application). Vazio = importação desligada.
+        'master_app_id' => env('WOOVI_MASTER_APP_ID'),
+        // Desliga só a importação das subcontas (conta sem a função de parceiro da
+        // Woovi responde 403); a chave mestre continua valendo para o resto.
+        'partner_import' => (bool) env('WOOVI_PARTNER_IMPORT', true),
+        // Nome do aplicativo criado em cada subconta (aparece na lista de apps dela).
+        'partner_application_name' => env('WOOVI_PARTNER_APPLICATION_NAME', 'UnicoPag MED'),
+        // Escopos desse aplicativo: só o que o MED chama (x-required-scope do OpenAPI).
+        // Vazio = esta lista padrão. Nunca há modo "sem escopos" (acesso completo).
+        'partner_application_scopes' => filled(env('WOOVI_PARTNER_APPLICATION_SCOPES'))
+            ? array_values(array_filter(array_map('trim', explode(',', (string) env('WOOVI_PARTNER_APPLICATION_SCOPES')))))
+            : ['DISPUTE_GET', 'DISPUTE_GET_LIST', 'DISPUTE_POST', 'FILE_POST', 'WEBHOOK_GET_LIST', 'WEBHOOK_POST', 'TRANSACTION_GET', 'CHARGE_GET', 'CHARGE_REFUND_GET_LIST', 'FUNDS_RECOVERY_GET'],
+
         // Como a evidência chega à Woovi em POST /api/v1/dispute/{id}/evidence:
         // - file_id: sobe o arquivo antes em POST /api/v1/files (purpose
         //   DISPUTE_EVIDENCE) e manda o id. Recomendado pela Woovi, mas exige a
-        //   feature DISPUTE_EVIDENCE_FILE_ID e o escopo FILE_POST na conta - sem
-        //   eles a Woovi devolve 403 e o envio cai sozinho para `url`.
-        // - url: manda um link temporário assinado deste sistema, de onde a
-        //   Woovi baixa o arquivo. Exige APP_URL público.
+        //   feature DISPUTE_EVIDENCE_FILE_ID. Sem ela (403 no envio, caso da conta
+        //   mestre), reenvia sozinho como `woovi_url`, a conta guarda a recusa e só
+        //   tenta o fileId de novo depois de uma semana.
+        // - woovi_url: sobe o arquivo na Woovi e manda o link de download que ela
+        //   devolve (storage dela); a Woovi baixa e guarda a cópia na hora.
+        // - url: manda um link temporário assinado deste sistema, de onde a Woovi
+        //   baixa o arquivo. Exige APP_URL público. Também é o caminho quando a conta
+        //   nem sobe arquivo (sem FILE_POST).
         'evidence_mode' => env('WOOVI_EVIDENCE_MODE', 'file_id'),
 
         // Validade do link assinado do modo `url` (a Woovi baixa e re-hospeda).
@@ -72,6 +94,12 @@ return [
         'key' => env('API_KEY'),
     ],
 
+    // RiskOps do KYC (header X-API-Key) lendo MEDs e chargebacks por conta. Chave
+    // própria, só destas rotas de leitura. Sem valor = rotas negam (fail-closed).
+    'riskops' => [
+        'key' => env('RISKOPS_API_KEY'),
+    ],
+
     // unico-api (plataforma ÚnicoPag), chamado PELO MED para montar o dossiê. Mesmo
     // esquema de autenticação do KYC (X-API-Key + Bearer). O ideal é uma integração
     // própria `med`, só de leitura, no unico-api - a chave `kyc` também escreve.
@@ -82,8 +110,8 @@ return [
         // Cadastro do seller - rota que já existe (PR #118 do unico-api, KB do KYC 8.22).
         // Vazio desliga. Placeholder: {account_id}.
         'register_endpoint' => env('UNICOPAG_REGISTER_ENDPOINT', '/api/kyc-panel/accounts/{account_id}/register'),
-        // Venda pelo identificador da Woovi - rota que AINDA NÃO EXISTE no unico-api
-        // (contrato em doc/MED_KNOWLEDGE_BASE.md). Vazio desliga. Placeholders:
+        // Venda pelo identificador da Woovi - /api/med/sales/lookup no unico-api
+        // (contrato em doc/MED_KNOWLEDGE_BASE.md 8.1). Vazio desliga. Placeholders:
         // {account_id}, {correlation_id}, {txid}, {end_to_end_id}.
         'sale_endpoint' => env('UNICOPAG_SALE_ENDPOINT'),
     ],
@@ -94,6 +122,10 @@ return [
     'kyc' => [
         'base_url' => env('KYC_BASE_URL', 'https://kyc.unicopag.com.br'),
         'timeout' => (int) env('KYC_TIMEOUT', 5),
+        // Site da loja pelo KYC (rota só de leitura, chave própria do MED). Vazio desliga.
+        // Placeholder: {account_id}.
+        'store_endpoint' => env('KYC_STORE_ENDPOINT'),
+        'med_key' => env('KYC_MED_API_KEY'),
     ],
 
     // Kapso - WhatsApp oficial da ÚnicoPag (o mesmo número e a mesma chave de projeto do
@@ -108,6 +140,16 @@ return [
         // o KYC tem o dele, e cada um confere só o seu.
         'webhook_secret' => env('KAPSO_WEBHOOK_SECRET'),
         'timeout' => (int) env('KAPSO_TIMEOUT', 15),
+    ],
+
+    // Anthropic (Claude): redige o rascunho da defesa do MED a partir do dossiê
+    // conferido. Sem chave, o botão "Gerar defesa com IA" fica escondido.
+    'anthropic' => [
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('MED_IA_MODEL', 'claude-opus-5-5'),
+        // low | medium | high | xhigh | max - redação jurídica pede profundidade.
+        'effort' => env('MED_IA_EFFORT', 'high'),
+        'timeout' => (float) env('MED_IA_TIMEOUT', 240),
     ],
 
     'discord' => [

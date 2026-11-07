@@ -27,6 +27,10 @@ class SellerNotifier
      */
     public function disputeOpened(Dispute $dispute, ?string $complementRequest = null): bool
     {
+        if (! self::enabled()) {
+            return false;
+        }
+
         // WhatsApp não decide o e-mail nem o contrário: um canal falhar não segura o outro.
         $byWhatsApp = rescue(fn (): bool => $this->whatsapp->notify($dispute, $complementRequest), false);
 
@@ -35,13 +39,13 @@ class SellerNotifier
 
     private function email(Dispute $dispute, ?string $complementRequest): bool
     {
-        $email = $dispute->wooviAccount->contact_email;
+        $email = $dispute->seller()['email'];
 
         if (! $email) {
             $this->events->record(
                 DisputeEventType::SELLER_NOTIFICATION_FAILED,
                 $dispute,
-                'Conta sem e-mail de contato: avise o seller pelo link da ficha.',
+                'Lojista sem e-mail de contato (nem na venda nem na conta): avise pelo link da ficha.',
                 level: 'warning',
             );
 
@@ -74,9 +78,22 @@ class SellerNotifier
         return true;
     }
 
+    /**
+     * Aviso ao lojista ligado (`MED_AVISO_LOJISTA`). Desligado, nada sai - nem
+     * e-mail nem WhatsApp - e o caso segue sendo montado normalmente.
+     */
+    public static function enabled(): bool
+    {
+        return (bool) config('med.aviso_lojista');
+    }
+
     public function disputeClosed(Dispute $dispute): void
     {
-        $email = $dispute->wooviAccount->contact_email;
+        if (! self::enabled()) {
+            return;
+        }
+
+        $email = $dispute->seller()['email'];
 
         if (! $email) {
             return;

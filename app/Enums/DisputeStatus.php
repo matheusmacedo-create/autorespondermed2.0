@@ -26,8 +26,8 @@ enum DisputeStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::PENDING_SELLER => 'Aguardando seller',
-            self::SELLER_SUBMITTED => 'Defesa recebida',
+            self::PENDING_SELLER => 'Aberto',
+            self::SELLER_SUBMITTED => 'Lojista respondeu',
             self::EVIDENCE_SENT => 'Enviado à Woovi',
             self::ACCEPTED => 'Devolução aceita',
             self::REJECTED => 'Contestação rejeitada',

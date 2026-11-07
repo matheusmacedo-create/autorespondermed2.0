@@ -8,6 +8,7 @@ use App\Enums\EvidenceKind;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
 use App\Services\DisputeEventRecorder;
+use App\Support\Mask;
 use App\Support\TaxId;
 use Barryvdh\DomPDF\Facade\Pdf;
 
@@ -34,7 +35,7 @@ class GenerateDefenseLetterAction
 
         $data = $this->data($dispute);
 
-        if (blank($data['statement']) && blank($data['analystNotes']) && $data['facts'] === []) {
+        if (blank($data['statement']) && blank($data['analystNotes']) && blank($data['defense']) && $data['facts'] === []) {
             return null;
         }
 
@@ -72,13 +73,24 @@ class GenerateDefenseLetterAction
         $register = $dispute->sourcePayload(DossierSource::UNICOPAG_REGISTER);
 
         return [
+            // Cabeçalho no formato da Compliance. Requerente com o nome mascarado
+            // (só o primeiro nome inteiro), como todo PDF que sai do sistema.
+            'requester' => Mask::name($dispute->payer_name),
+            'paidAt' => $dispute->paidAt()?->timezone('America/Sao_Paulo')->format('d/m/Y · H:i'),
+            'products' => $dispute->products(),
+            'channels' => array_filter([
+                'WhatsApp' => config('med.defesa.whatsapp'),
+                'E-mail' => config('med.defesa.email'),
+            ]),
+            'signature' => (string) config('med.defesa.assinatura'),
+            'defense' => $dispute->defense_text,
             'statement' => $dispute->seller_statement,
             'analystNotes' => $dispute->analyst_notes,
             'sellerContactName' => $dispute->seller_contact_name,
             'sellerSubmittedAt' => $dispute->seller_submitted_at?->timezone('America/Sao_Paulo')->format('d/m/Y H:i'),
-            'accountName' => $dispute->wooviAccount->name,
-            'accountTaxId' => TaxId::format($dispute->wooviAccount->tax_id),
-            'tradeName' => data_get($register, 'register.trade_name'),
+            'accountName' => $dispute->seller()['name'],
+            'accountTaxId' => TaxId::format($dispute->seller()['tax_id']),
+            'tradeName' => data_get($dispute->merchant, 'trade_name') ?: data_get($register, 'register.trade_name'),
             'sellerDetails' => array_filter([
                 'Pedido informado pelo recebedor' => data_get($dispute->seller_details, 'order_reference'),
                 'Rastreio informado pelo recebedor' => data_get($dispute->seller_details, 'tracking_code'),

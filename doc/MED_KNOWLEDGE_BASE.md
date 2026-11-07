@@ -33,8 +33,32 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
   dela em `acquirer_recipient_data` `[kyc]` (KB do KYC 11.4 e 11.8). O MED cai na conta do seller, e só o
   AppID daquela conta lê a disputa e envia evidência. Por isso `woovi_accounts` guarda um AppID por conta,
   criptografado com a `APP_KEY` `[código]`.
-- **Três origens de AppID** (`WooviAccountSource`): cadastro manual no painel, envio pelo unico-api
-  (`PUT /api/woovi-accounts`) e, no futuro, autorização via WooviApp (OAuth). `[código]`
+- **Quatro origens de AppID** (`WooviAccountSource`): cadastro manual no painel, envio pelo unico-api
+  (`PUT /api/woovi-accounts`), **importação pela conta mestre** (abaixo) e, no futuro, autorização via
+  WooviApp (OAuth). `[código]`
+- **Importação automática pela conta mestre** (`med:importar-contas`, de hora em hora, desde 22/10/2026).
+  São centenas de sellers: cadastrar um a um não escala. Com um aplicativo da conta mestre/parceira da
+  ÚnicoPag criado só para o MED (`WOOVI_MASTER_APP_ID`, escopos `PARTNER_COMPANY_GET_LIST` e
+  `PARTNER_APPLICATION_POST`; **não** reaproveitar a chave do unico-api, que tem acesso total) o MED lista as subcontas em
+  `GET /partner/affiliate` (paginado por `skip`/`limit`; `company.taxID` vem como string ou como
+  `{taxID, type}`) e os pré-cadastros em `GET /partner/company` (trazem o usuário mestre = contato), e para
+  cada CNPJ **sem conta aqui** cria um aplicativo na subconta via `POST /partner/application`
+  (`application.type = API`, `scopes` só com o que o MED chama) - o AppID é `base64("clientId:clientSecret")`.
+  Conta que já existe, de qualquer origem, **nunca ganha chave nova**: a rota não é idempotente e cada chamada
+  deixaria mais uma credencial na subconta do seller; só os campos em branco (contato, id da empresa) são
+  completados. Pré-cadastro sem `company.id` (cadastro não concluído) é pulado. Travas (revisão de 22/10):
+  conta ativa sem CPF/CNPJ nem id da empresa **impede a criação** (não dá para provar que a subconta não está
+  aqui - seria duplicar o seller: dois casos por MED, dois avisos); 401/403/429 ou 400 de escopo **param a
+  rodada** (é a mesma recusa para todas) com alerta no Discord; **nunca** há aplicativo "sem escopos"; uma
+  importação por vez (`Cache::lock`), e cada CNPJ sob a mesma trava que o `PUT /api/woovi-accounts`, que adota
+  a conta já importada do mesmo CNPJ em vez de criar outra. Conta ativa sem webhook ou nunca sincronizada é
+  religada na rodada seguinte. Os escopos
+  vêm do `x-required-scope` do OpenAPI (`api.woovi.com/api/openapi.json`): `DISPUTE_GET`, `DISPUTE_GET_LIST`,
+  `DISPUTE_POST`, `FILE_POST`, `WEBHOOK_GET_LIST`, `WEBHOOK_POST`, `TRANSACTION_GET`, `CHARGE_GET`,
+  `CHARGE_REFUND_GET_LIST`, `FUNDS_RECOVERY_GET` (o comprovante `/receipt` não exige escopo). As rotas de
+  parceiro exigem `PARTNER_COMPANY_GET_LIST` e `PARTNER_APPLICATION_POST` na conta mestre e a feature de
+  parceiro ativada pelo suporte da Woovi. `[openapi]` **Em aberto:** se as subcontas criadas pelo unico-api via
+  `/account-register` (BaaS) aparecem em `/partner/affiliate` - confirmar na primeira execução real.
 
 ## 2. O contrato da Woovi (conferido em 12/10/2026)
 
@@ -42,8 +66,8 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 
 | Uso | Endpoint | Escopo | Fonte |
 |---|---|---|---|
-| Ler um caso | `GET /api/v1/dispute/{id}` - **o id é o endToEndId** | `DISPUTE_GET` | `[openapi]` |
-| Listar casos | `GET /api/v1/dispute?start&end` (paginado, `pageInfo.hasNextPage`) | `DISPUTE_GET_LIST` | `[openapi]` |
+| Ler um caso | `GET /api/v1/dispute/{id}` - **só aceita o endToEndId** (o id interno dá 400 "Disputa não encontrada"); Pix com mais de uma disputa devolve a **mais antiga** (2.5) | `DISPUTE_GET` | `[openapi]` `[produção]` |
+| Listar casos | `GET /api/v1/dispute?start&end` (paginado, `pageInfo.hasNextPage`); `start`/`end` filtram pela criação (`createdAt`), em ordem crescente; cada item traz `id`, `type`, `status`, `endToEndId`, `value`, `disputeReason`, `createdAt` | `DISPUTE_GET_LIST` | `[openapi]` `[produção]` |
 | Subir arquivo | `POST /api/v1/files` multipart, `purpose=DISPUTE_EVIDENCE`, `correlationID` | `FILE_POST` | `[doc-woovi]` |
 | Enviar evidência | `POST /api/v1/dispute/{id}/evidence` `{documents:[{fileId\|url, description, correlationID}]}` | `DISPUTE_POST` | `[doc-woovi]` `[openapi]` |
 | Cadastrar webhook | `POST /api/v1/webhook` `{webhook:{name, event, url, isActive}}` | webhook | `[openapi]` |
@@ -78,6 +102,9 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 - Payload: `{event, dispute:{status, endToEndId, name, email, phoneNumber, value, disputeReason}}`. O exemplo
   da doc **não traz `id` nem identificação da conta**. `[doc-woovi]` Por isso cada conta tem uma URL própria
   (`/api/webhooks/woovi/{webhook_key}`). `[decisão]`
+- **Na prática o webhook traz `id` e `type`**: das 60 chamadas reais até 29/10/2026, 59 vieram como
+  `{status, value, disputeReason, endToEndId, type, id}` (sem nome, e-mail nem telefone do pagador) e uma com os
+  campos da doc mais `id` e `type`. `[produção]`
 - Assinatura: header `x-webhook-signature` = base64(RSA-SHA256(corpo bruto, chave privada da Woovi)).
   Qualquer chave publicada vale (rotação). O teste `WebhookSignatureVerifierTest` usa o exemplo **real** da
   doc - payload, assinatura e chave - e passa. `[doc-woovi]` `[código]`
@@ -97,10 +124,25 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 
 ### 2.4 Inconsistências da doc da Woovi (tratadas no código)
 
-- A página de evidência fala em "id da disputa recebido pelo webhook", mas o webhook não traz `id`. Usamos o
-  `id` interno quando a Woovi o devolve e o `endToEndId` nos outros casos (`Dispute::wooviIdentifier()`).
-  **Confirmar com a Woovi que o endpoint de evidência aceita o endToEndId.** `[inferido]`
+- A página de evidência fala em "id da disputa recebido pelo webhook", e o exemplo do webhook não traz `id` (o
+  webhook real traz, 2.2). Enviamos pelo `id` interno (`Dispute::wooviIdentifier()`; todos os casos o têm desde a
+  listagem; aceito nos 59 envios até 29/10) - por endToEndId a evidência poderia cair na outra disputa do mesmo
+  Pix (2.5). `[produção]`
 - O status `ACCEPTED`/`REJECTED` do evento pode faltar no campo; o nome do evento decide. `[código]`
+
+### 2.5 Um Pix, mais de uma disputa (29/10/2026) `[produção]`
+
+- O mesmo endToEndId pode ter várias disputas na Woovi: das 2.015 da conta mestre, 22 Pix têm duas - MED e
+  chargeback, MED cancelado e outro aberto depois, ou dois MEDs cancelados com valores diferentes.
+- **Um caso aqui é uma disputa da Woovi**: o índice único é `(woovi_account_id, woovi_dispute_id)` e o endToEndId
+  só indexado (migração `2026_10_29_000001`). `IngestDisputeAction` acha o caso pelo `id`; sem `id` (exemplo da
+  doc), só se o Pix tiver um caso daquele tipo - com dois, a chamada do webhook fica com o erro e a listagem resolve.
+- `SyncDisputeAction`: se o `GET /dispute/{endToEndId}` devolver outra disputa (id diferente), a releitura vem
+  da listagem de um dia antes a um dia depois da abertura do caso; a outra disputa não é aplicada a este caso.
+- O que aconteceu antes da correção: a ingestão casava só pelo endToEndId e as duas disputas se sobrescreviam a
+  cada sincronização. O #273 (MED ganho em 26/10, com chargeback aberto no mesmo Pix) acumulou 146 trocas de status
+  em três dias; o #354 (MED novo de 29/10, num Pix com chargeback de 06/10) virava "CHARGEBACK" a cada releitura e
+  a resposta automática o pulava ("não é MED"). Os dois foram corrigidos à mão no servidor no mesmo dia.
 
 ## 3. O que a Woovi não documenta (perguntar)
 
@@ -193,7 +235,7 @@ travas deixarem - envia sozinho. Pedido do Matheus em 12/10/2026. Desligado por 
 | Devoluções | Woovi `GET /charge/{correlationID}/refund` | idem |
 | Comprovante | Woovi `GET /receipt/pix-in/{e2e}` (vira evidência PDF) | transação |
 | Alegação | Woovi `GET /funds-recovery/{e2e}/disputes` - `situationType` (SCAM, ACCOUNT_TAKEOVER...) | feature "MED API" (403 = não configurado) |
-| Venda | unico-api, rota **a criar** (abaixo) | `unicopag_account_id` + correlationID/txid/e2e |
+| Venda | unico-api `GET /api/med/sales/lookup` (abaixo, no ar desde 26/10/2026) | correlationID/txid/e2e (sem conta) |
 | Cadastro | unico-api `GET /api/kyc-panel/accounts/{account_id}/register` (existe, KB do KYC 8.22) | `unicopag_account_id` |
 | KYC | KYC `GET /api/onboarding/status?account_id=` (pública) | `unicopag_account_id` |
 
@@ -281,6 +323,16 @@ Discord. Retenção/anonimização depois do encerramento: decisão do jurídico
 Rota que **não existe hoje** (nenhuma rota de leitura de transação/pedido é conhecida, KB do KYC 8.20/11.13).
 Sem ela o dossiê funciona só com a Woovi. Sugestão:
 
+**Atualizado em 25/10/2026** (MEDs caem na conta mestre): a busca precisa funcionar **só com o
+`correlation_id`** - o MED não sabe de qual lojista é o caso - e a resposta traz o lojista em `seller`
+(`name`, `trade_name`, `document`, `contact_name`, `email`, `phone`, `kyc_status`) e a `account_id` dele. O
+MED guarda isso no caso (`disputes.merchant`, `merchant_account_id`), usa a `account_id` para o cadastro e o
+KYC, e avisa o lojista pelo contato da venda (`Dispute::seller()`, com o da conta Woovi como reserva). Lojista
+identificado numa montagem e ninguém avisado ainda = aviso na hora, uma vez. Sem KYC configurado, o
+`seller.kyc_status` da venda vale como status do KYC. Endpoint recomendado:
+`UNICOPAG_SALE_ENDPOINT=/api/med/sales/lookup?correlation_id={correlation_id}&end_to_end_id={end_to_end_id}&txid={txid}`.
+O `charge.correlationID` (UUID) existe em toda cobrança paga da conta mestre conferida; sem subconta nem split.
+
 ```
 GET /api/med/sales/lookup?account_id=&correlation_id=&txid=&end_to_end_id=
 X-API-Key: <integração "med", só leitura>     (não reaproveitar a chave "kyc", que escreve)
@@ -321,8 +373,110 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 - `GET /api/woovi-accounts/{account_id}/disputes` - últimos 100 casos da conta, com `seller_link` enquanto o
   caso aceita defesa (para o dashboard do seller mostrar o botão).
 
+## 10. Defesa com IA (25/10/2026)
+
+- **A Woovi não recebe texto de defesa**: a única resposta a um MED é `POST /dispute/{id}/evidence` com documentos
+  (`fileId`/`url` + `description`). Não há rota para aceitar a devolução. "Responder com IA" = a IA redige o texto
+  que vai **dentro da carta de defesa** (PDF), enviada como evidência. `[openapi]`
+- **Insumo mais valioso**: `GET /funds-recovery/{fundsRecoveryId}/infraction-reports` traz `reportDetails` (o relato
+  de quem contestou, registrado no Bacen) e `analysisResult`. Exige a feature "MED API" e `FUNDS_RECOVERY_GET`; o
+  `fundsRecoveryId` vem no item de `/funds-recovery/{e2e}/disputes`. Sem a feature (403) a IA segue sem o relato. `[openapi]`
+- **Desenho**: `GenerateAiDefenseAction` -> `DefenseWriter` (`ClaudeDefenseWriter`, modelo `MED_IA_MODEL`, padrão
+  `claude-opus-5-5`, effort `high`, saída em JSON Schema estrito, `fallbacks: 'default'` com o beta
+  `server-side-fallback-2026-07-01` para recusa por política). Os dados do caso vão entre marcações e o system prompt
+  diz que instrução dentro deles não vale (relato do seller e da vítima são texto livre). O modelo só afirma o que
+  está em "fatos conferidos" (os mesmos `MatchDossierAction::facts`), atribui o resto ao recebedor e recomenda
+  `defender` / `defender_com_ressalvas` / `nao_defender`. Recusa, `max_tokens`, JSON inválido e erros da API viram
+  `AI_DEFENSE_FAILED` na linha do tempo e aviso no sininho; nada é salvo. `[código]`
+- **LGPD**: vão ao modelo o tipo, valor, motivo, alegação, datas, nome do recebedor, fatos (já mascarados),
+  pendências, tipo/descrição das evidências, relato do seller, parecer e o `reportDetails`. Não vão nome, CPF,
+  e-mail nem telefone de quem pagou. O `reportDetails` é texto livre do Bacen e pode citar dado pessoal - é o
+  único ponto sem máscara; avaliar com o jurídico antes de ligar em produção.
+- **Conta mestre**: na UNICO PAG os MEDs caem **na própria conta mestre** (1.978 disputas desde 07/2025, 57 abertas em
+  25/10), não nas subcontas; a conta não tem a função de parceiro (`/partner/*` = 403 "Empresa não possui
+  parceirias"). Por isso a conta mestre é cadastrada como uma `woovi_account` e `WOOVI_PARTNER_IMPORT=false`
+  desliga a importação. Cada caso ainda não sabe de qual seller é: ligar pela venda (rota de venda do unico-api).
+
+## 11. Operação na conta mestre (26/10/2026)
+
+- **Rota de venda conferida em produção** (unico-api `vps1.unicopag.com.br`, integração `med`): 3 MEDs abertos
+  testados; 2 acharam a venda pelo `correlation_id` (`matched_by=correlation_id`, `amount_total` igual ao valor
+  do Pix) e 1 voltou 404. As duas vendas achadas vieram com `payment_status=refunded` - confirmar com o unico-api
+  se é o bloqueio cautelar do MED aparecendo como estorno.
+- **A chave `med_` não abre o cadastro** (`/api/kyc-panel/accounts/{id}/register` responde 401): a fonte
+  "Cadastro" fica falha até o unico-api liberar essa rota para a integração `med`.
+- **Comprovante oficial da Woovi** responde 401 "missing the required scope" no AppID da conta mestre: falta o
+  escopo do `receipt/pix-in` no aplicativo.
+- **Modelo de defesa da operação** (PDF da Compliance, caso de R$ 177,00 de 18/10/2026): venda legítima +
+  pedido dentro do prazo de entrega em dias úteis (política das lojas: rastreio em até 3 dias úteis, entrega em
+  10 a 15) + "o MED é para fraude, não para atraso ou desacordo comercial" + canais oficiais + pedido de
+  indeferimento. Anexos usados: comprovante de pagamento da ÚnicoPag e print da política de entrega do site.
+  Virou o formato da carta e o estilo da IA. Os MEDs abertos são quase todos "não recebi": sem esse argumento a
+  IA recomendava "não defender" por falta de prova de entrega.
+- **Políticas do site da loja** (pedido da operação): print das páginas de entrega, termos e trocas guardado por
+  loja e reaproveitado; a IA usa o prazo publicado pela própria loja. O site vem do cadastro da plataforma (rota
+  de cadastro, ainda 401 com a chave `med_`), do KYC (`OnboardingBusinessProfile.website`, rota de leitura a
+  criar no KYC) ou da venda; sem nenhum, o analista preenche em "Lojas".
+- **Site da loja no KYC** (rota `GET /api/med/stores/{account_id}`, unicopag-kyc#142, chave `MED_API_KEY`):
+  em 26/10/2026, 2 dos 6 lojistas com MED aberto tinham site (AlliPure e Ze dos Mantos); Mega Store, Loja,
+  Alfabonix e 4 Seasons não têm site no KYC nem no cadastro copiado da plataforma - preencher em "Lojas".
+- **Loja de página única** (AlliPure): "Envio e Entrega", "Trocas" e "Termos" no rodapé apontam para a própria
+  página de venda, sem política nenhuma. A captura recusa a página inicial como política; o caso fica sem
+  política da loja e a IA usa a política padrão.
+- **Worker do MED no Forge é processo em segundo plano**: o `$RESTART_QUEUES()` do deploy não o reinicia (ele
+  seguia com o código antigo). O script de deploy tem `artisan queue:restart` explícito.
+- **Envio por fileId na conta mestre**: o `POST /api/v1/files` aceita o arquivo, mas o `POST
+  /dispute/{id}/evidence` com `fileId` responde 403 "Your account does not have the permission to send a evidence
+  by fileId" (falta a feature DISPUTE_EVIDENCE_FILE_ID). O guia da Woovi diz que, por `url`, ela baixa o
+  documento na hora do envio e guarda a cópia dela (a resposta traz o link novo). Então o envio reenvia com o
+  `file.url` do próprio upload (S3 da Woovi, `woovi-media-production`, vale 1h; o upload repetido com o mesmo
+  correlationID devolve o mesmo arquivo e um link novo - conferido em 27/10/2026). A conta guarda a recusa
+  (`evidence_file_id_refused_at`) e vai direto pelo link por uma semana; depois tenta o fileId de novo, então
+  quando a Woovi liberar a feature o sistema passa a usá-la sozinho. Pedir a feature ao suporte da Woovi.
+- **Primeiro envio real (27/10/2026, MED de R$ 177,00 da Mega Store)**: fileId recusado (403), reenvio pelo link
+  da Woovi aceito (200) com carta + registro da venda. A resposta devolve, por documento, o link da cópia que a
+  Woovi guardou (outro arquivo, bucket privado: abrir de fora dá AccessDenied, é o esperado). O status do MED na
+  Woovi segue `ACKNOWLEDGED` depois da resposta; a decisão chega pelo webhook.
+- **Erro corrigido (27/10/2026)**: a IA afirmava "a política de envio informada no site da loja prevê 3 + 10 a 15
+  dias úteis" em lojas sem política capturada (Mega Store e Loja sem site; AlliPure sem política no site). Os 33
+  rascunhos foram refeitos antes de qualquer envio em lote. O #298 (Mega Store, enviado à mão em 26/10) saiu
+  com a frase, mas ela confere: o modelo da Compliance é o caso #308 da Mega Store, e o print da política que veio
+  com ele mostra rastreio em até 3 dias úteis e entrega em 10 a 15. Falta o site da Mega Store para capturar.
+- **Prazo real da Woovi para responder** (medido em 26/10/2026, ~22:30): MED aberto em 22/10 às 19:08 foi recusado
+  ("Você não pode enviar uma evidência após o prazo ter expirado", HTTP 400) e o aberto às 22:57 do mesmo dia foi
+  aceito: o prazo fica em ~4 dias (96h) da abertura - com abertura numa quinta, também bate com 2 dias úteis.
+  Confirmar a regra com a Woovi antes de mudar `MED_PRAZO_RESPOSTA_HORAS` (hoje 72h, mais conservador que 96h).
+- **Primeiro lote (`med:responder --incluir-vencidos`, 26/10/2026)**: 29 MEDs respondidos (Mega Store, Loja, 4
+  Seasons), 4 recusados por prazo expirado; ficaram de fora os "não defender" (pagador diferente do cliente da
+  cobrança ou venda não localizada) e o único CHARGEBACK.
+- **Segundo lote (28/10/2026)**: 16 MEDs abertos em 27-28/10 respondidos, 0 falhas; Ze dos Mantos e Volei Sports
+  Brasil (site pelo KYC, 3 políticas capturadas) levaram as políticas como evidência. Os "não defender" que restaram
+  têm pagador de fato diferente do cliente da cobrança (2 com CNPJ pagando pedido de CPF) e alegação de golpe; um
+  pagador cita ter comprado em "megamastershow.site" - triangulação, não se contesta.
+- **Resposta automática ligada (28/10/2026)**, a pedido da operação: `med:responder --automatico` de hora em hora,
+  contestando também os "não defender" (`MED_DEFENDER_NAO_RECOMENDADOS=true`) para medir depois o que a Woovi
+  decide (`med:resultados`). A regra 9 da IA (RULES_VERSION 3) impede a carta desses casos de afirmar "compra
+  legítima" ou "sem indício de fraude" quando o pagador não é o cliente da cobrança.
+- Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
+  mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
+
 ## Histórico de atualizações
 
+- **2026-11-07** - rotas de leitura para o RiskOps do KYC (`GET /api/riskops/disputas` e `/{conta}`, X-API-Key
+  `RISKOPS_API_KEY`): o MED continua em SQLite no servidor e o KYC lê por API, não pelo banco. A conta agrupada é
+  a do lojista da venda (`merchant_account_id`), com a da subconta Woovi como reserva.
+- **2026-11-06** - chargeback passa a ser defendido como o MED (`med:responder`), a pedido da operação: o único
+  dinheiro perdido desde 26/10 foi um chargeback sem resposta (Pix do #273, R$ 193,91).
+- **2026-10-29** - um caso por disputa da Woovi, não por Pix (2.5); GET só por endToEndId e devolve a mais
+  antiga; webhook real traz `id` e `type` (2.2).
+- **2026-10-29** - placar das respostas no painel e `med:placar`: ganho/perdido só conta o que foi respondido
+  (`evidence_sent_at`); o decidido sem resposta nossa fica à parte, para comparar.
+- **2026-10-26** - rota de venda no ar (`vps1.unicopag.com.br/api/med/sales/lookup`, chave `med_`); janela de
+  14 dias, `med:podar`, aviso ao lojista desligado, defesa com IA automática e fila pelo lojista (seção 11).
+- **2026-10-25** - lojista do caso pela venda (`seller` + `account_id`), busca sem conta, aviso ao lojista da venda (8.1).
+- **2026-10-25** - defesa com IA (seção 10); MEDs caem na conta mestre; `WOOVI_PARTNER_IMPORT`.
+- **2026-10-22** - importação automática das subcontas pela conta mestre (`med:importar-contas`, API de
+  parceiro: `/partner/affiliate`, `/partner/company`, `/partner/application`); escopos conferidos no OpenAPI.
 - **2026-10-12** - segunda revisão do dossiê: lista branca da alegação, descarte sob trava com reconferência,
   KYC sem vínculo bloqueia o automático, partial reenfileirado a cada 6h.
 - **2026-10-12** - dossiê automático, conferência e envio automático (seção 8); contrato da rota de venda

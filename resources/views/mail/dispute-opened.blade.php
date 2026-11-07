@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <body style="font-family: Arial, sans-serif; color: #1c3154; line-height: 1.5;">
-    <p>Olá{{ $dispute->wooviAccount->contact_name ? ', '.$dispute->wooviAccount->contact_name : '' }}!</p>
+    <p>Olá{{ $dispute->seller()['contact_name'] ? ', '.$dispute->seller()['contact_name'] : '' }}!</p>
 
     @if ($complementRequest)
         <p>Nossa equipe analisou a defesa da contestação de Pix abaixo e precisa de mais informações:</p>
         <blockquote style="border-left: 3px solid #dc3645; margin: 0; padding-left: 12px;">{!! nl2br(e($complementRequest)) !!}</blockquote>
     @else
-        <p>O pagador de um Pix recebido pela conta <strong>{{ $dispute->wooviAccount->name }}</strong> pediu a devolução pelo
+        <p>O pagador de um Pix recebido pela conta <strong>{{ $dispute->seller()['name'] }}</strong> pediu a devolução pelo
             MED (Mecanismo Especial de Devolução do Banco Central).</p>
     @endif
 

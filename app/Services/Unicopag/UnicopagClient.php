@@ -11,8 +11,8 @@ use Illuminate\Support\Facades\Http;
  * autenticação que o KYC usa com o unico-api (X-API-Key + Bearer, KB do KYC 11.13).
  *
  * - Cadastro do seller: rota que existe (GET /api/kyc-panel/accounts/{account_id}/register).
- * - Venda pelo identificador da Woovi: rota que AINDA NÃO EXISTE no unico-api; o
- *   contrato esperado está em doc/MED_KNOWLEDGE_BASE.md. Sem endpoint configurado,
+ * - Venda pelo identificador da Woovi: GET /api/med/sales/lookup (contrato em
+ *   doc/MED_KNOWLEDGE_BASE.md 8.1). Sem endpoint configurado,
  *   a fonte fica "não configurada" e o dossiê segue só com a Woovi.
  */
 class UnicopagClient

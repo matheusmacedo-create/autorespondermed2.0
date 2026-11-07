@@ -33,6 +33,11 @@ enum DisputeEventType: string
     case AUTO_SENT = 'auto_sent';
     case AUTO_SEND_SKIPPED = 'auto_send_skipped';
     case EVIDENCE_DISCARDED = 'evidence_discarded';
+    case AI_DEFENSE_GENERATED = 'ai_defense_generated';
+    case AI_DEFENSE_FAILED = 'ai_defense_failed';
+    case DEFENSE_EDITED = 'defense_edited';
+    case MERCHANT_IDENTIFIED = 'merchant_identified';
+    case STORE_POLICY_ATTACHED = 'store_policy_attached';
 
     public function label(): string
     {
@@ -63,6 +68,11 @@ enum DisputeEventType: string
             self::AUTO_SENT => 'Enviado automaticamente',
             self::AUTO_SEND_SKIPPED => 'Envio automático não feito',
             self::EVIDENCE_DISCARDED => 'Evidência descartada',
+            self::AI_DEFENSE_GENERATED => 'Defesa redigida pela IA',
+            self::AI_DEFENSE_FAILED => 'Defesa com IA não gerada',
+            self::DEFENSE_EDITED => 'Texto da defesa editado',
+            self::MERCHANT_IDENTIFIED => 'Lojista identificado',
+            self::STORE_POLICY_ATTACHED => 'Política da loja anexada',
         };
     }
 

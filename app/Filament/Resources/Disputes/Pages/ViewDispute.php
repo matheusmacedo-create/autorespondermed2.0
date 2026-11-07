@@ -18,7 +18,7 @@ class ViewDispute extends ViewRecord
     {
         $dispute = $this->getRecord();
 
-        return "{$dispute->type} {$dispute->formattedValue()} - {$dispute->wooviAccount->name}";
+        return "{$dispute->type} {$dispute->formattedValue()} - ".($dispute->merchantName() ?? 'lojista não identificado');
     }
 
     protected function getHeaderActions(): array
@@ -26,7 +26,9 @@ class ViewDispute extends ViewRecord
         return [
             DisputeActions::sendToWoovi(),
             DisputeActions::requestComplement(),
+            DisputeActions::generateAiDefense(),
             ActionGroup::make([
+                DisputeActions::editDefenseText(),
                 DisputeActions::editAnalystNotes(),
                 DisputeActions::attachEvidence(),
                 DisputeActions::discardEvidence(),

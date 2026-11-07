@@ -100,6 +100,22 @@ class DiscordNotificationService
     }
 
     /**
+     * Alerta de operação sem caso (ex.: a importação das subcontas parou). Nunca
+     * leva credencial nem dado de pagador - só o que o operador precisa para agir.
+     */
+    public function operationAlert(string $title, string $message): void
+    {
+        $this->post([
+            'content' => trim($this->roleMention().' '.Str::limit($title, 200)),
+            'embeds' => [[
+                'title' => Str::limit($title, 250),
+                'description' => Str::limit($message, 3500),
+                'color' => 0xE67E22,
+            ]],
+        ]);
+    }
+
+    /**
      * @param  array<int, array<string, string>>  $extraFields
      */
     private function send(string $content, string $title, Dispute $dispute, int $color, bool $mention, array $extraFields = []): void

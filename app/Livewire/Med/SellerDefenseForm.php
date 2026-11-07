@@ -65,7 +65,7 @@ class SellerDefenseForm extends Component
         }
 
         $this->blockedMessage = $this->blockReason();
-        $this->contactName = (string) ($this->dispute->seller_contact_name ?? $this->dispute->wooviAccount->contact_name ?? '');
+        $this->contactName = (string) ($this->dispute->seller_contact_name ?? $this->dispute->seller()['contact_name'] ?? '');
 
         if ($this->evidences === []) {
             $this->addEvidence();

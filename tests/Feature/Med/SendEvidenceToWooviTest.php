@@ -11,6 +11,7 @@ use App\Models\DisputeEvidence;
 use App\Services\Woovi\WooviException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -100,6 +101,99 @@ class SendEvidenceToWooviTest extends TestCase
         // Depois do primeiro 403, os próximos arquivos já vão direto por URL.
         Http::assertSentCount(2);
         $this->assertSame(DisputeStatus::EVIDENCE_SENT, $this->dispute->fresh()->status);
+    }
+
+    /**
+     * @return Collection<int, Request>
+     */
+    private function evidencePosts()
+    {
+        return collect(Http::recorded())->map(fn (array $pair) => $pair[0])->filter(fn (Request $r): bool => str_ends_with($r->url(), '/evidence'))->values();
+    }
+
+    private function fakeMasterAccount(): void
+    {
+        // Como na conta mestre: o upload passa e devolve o link do arquivo no storage da
+        // Woovi; a recusa do fileId vem só no envio da evidência.
+        $uploads = 0;
+        Http::fake([
+            'api.woovi.test/api/v1/files' => function (Request $request) use (&$uploads) {
+                $uploads++;
+
+                return Http::response(['file' => ['id' => 'file-'.md5($request->body()), 'url' => "https://woovi-files.s3.amazonaws.com/dispute_evidence/arquivo?X-Amz-Signature=v{$uploads}"]], 201);
+            },
+            'api.woovi.test/api/v1/dispute/*/evidence' => function (Request $request) {
+                return collect($request->data()['documents'])->contains(fn (array $doc): bool => isset($doc['fileId']))
+                    ? Http::response(['error' => 'Your account does not have the permission to send a evidence by fileId', 'errorCode' => 'DISPUTE_EVIDENCE_FILE_ID_NOT_ALLOWED'], 403)
+                    : Http::response(['documents' => collect($request->data()['documents'])->map(fn (array $doc): array => array_merge($doc, ['url' => 'https://woovi/copia']))->all()]);
+            },
+        ]);
+    }
+
+    public function test_when_woovi_refuses_the_file_id_the_file_goes_by_its_link_in_the_woovi_storage(): void
+    {
+        $this->fakeMasterAccount();
+
+        app(SendEvidenceToWooviAction::class)->handle($this->dispute);
+
+        $posts = $this->evidencePosts();
+        $this->assertCount(2, $posts);
+        $this->assertTrue(collect($posts[0]->data()['documents'])->every(fn (array $doc): bool => isset($doc['fileId'])));
+        // O reenvio leva o link do arquivo guardado na própria Woovi, não o deste sistema.
+        $this->assertTrue(collect($posts[1]->data()['documents'])->every(fn (array $doc): bool => ! isset($doc['fileId'])
+            && str_starts_with($doc['url'] ?? '', 'https://woovi-files.s3.amazonaws.com/')));
+        $this->assertSame(DisputeStatus::EVIDENCE_SENT, $this->dispute->fresh()->status);
+        $this->assertNotNull($this->dispute->wooviAccount->fresh()->evidence_file_id_refused_at);
+        $this->assertDatabaseHas('dispute_events', ['dispute_id' => $this->dispute->id, 'event' => DisputeEventType::EVIDENCE_SENT->value, 'message' => '2 documento(s) enviados à Woovi (arquivos guardados na Woovi, pelo link dela).']);
+        $this->assertSame('https://woovi/copia', $this->dispute->evidences()->first()->woovi_url);
+    }
+
+    public function test_after_the_refusal_the_next_sends_go_straight_by_the_woovi_link(): void
+    {
+        $this->fakeMasterAccount();
+        app(SendEvidenceToWooviAction::class)->handle($this->dispute);
+
+        $other = Dispute::factory()->submitted()->create(['woovi_account_id' => $this->dispute->woovi_account_id]);
+        DisputeEvidence::factory()->for($other)->create();
+        $before = $this->evidencePosts()->count();
+
+        app(SendEvidenceToWooviAction::class)->handle($other);
+
+        $posts = $this->evidencePosts()->slice($before)->values();
+        $this->assertCount(1, $posts, 'sem gastar a tentativa por fileId');
+        $this->assertTrue(collect($posts[0]->data()['documents'])->every(fn (array $doc): bool => str_starts_with($doc['url'] ?? '', 'https://woovi-files.s3.amazonaws.com/')));
+    }
+
+    public function test_a_week_later_the_file_id_is_tried_again(): void
+    {
+        $this->dispute->wooviAccount->forceFill(['evidence_file_id_refused_at' => now()->subDays(8)])->save();
+        Http::fake([
+            'api.woovi.test/api/v1/files' => Http::response(['file' => ['id' => 'file-1', 'url' => 'https://woovi-files.s3.amazonaws.com/x']], 201),
+            'api.woovi.test/api/v1/dispute/*/evidence' => Http::response(['documents' => []]),
+        ]);
+
+        app(SendEvidenceToWooviAction::class)->handle($this->dispute);
+
+        // A Woovi liberou a feature: volta a ir por fileId.
+        $this->assertTrue(collect($this->evidencePosts()[0]->data()['documents'])->every(fn (array $doc): bool => isset($doc['fileId'])));
+        $this->assertCount(1, $this->evidencePosts());
+    }
+
+    public function test_a_second_refusal_after_the_url_retry_keeps_everything_pending(): void
+    {
+        Http::fake([
+            'api.woovi.test/api/v1/files' => Http::response(['file' => ['id' => 'file-1']], 201),
+            'api.woovi.test/api/v1/dispute/*/evidence' => Http::response(['error' => 'Your account does not have the permission to send a evidence by fileId'], 403),
+        ]);
+
+        try {
+            app(SendEvidenceToWooviAction::class)->handle($this->dispute);
+            $this->fail('Envio deveria falhar.');
+        } catch (WooviException) {
+        }
+
+        $this->assertNotSame(DisputeStatus::EVIDENCE_SENT, $this->dispute->fresh()->status);
+        $this->assertSame(0, $this->dispute->evidences()->whereNotNull('sent_at')->count());
     }
 
     public function test_the_signed_evidence_url_serves_the_file_and_an_unsigned_one_does_not(): void

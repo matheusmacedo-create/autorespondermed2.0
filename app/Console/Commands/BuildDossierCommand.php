@@ -15,7 +15,7 @@ class BuildDossierCommand extends Command
 {
     protected $signature = 'med:montar-dossie
         {--caso=* : ID do caso (disputes.id); repita para vários}
-        {--abertos : Todos os casos abertos}
+        {--abertos : Todos os casos abertos da janela de trabalho}
         {--refazer : Busca de novo também as fontes que já deram certo}';
 
     protected $description = 'Monta o dossiê automático (Woovi, unico-api, KYC) dos casos';
@@ -33,7 +33,7 @@ class BuildDossierCommand extends Command
         $disputes = Dispute::query()
             ->with('wooviAccount')
             ->when($ids !== [], fn ($query) => $query->whereKey($ids))
-            ->when($this->option('abertos'), fn ($query) => $query->open())
+            ->when($this->option('abertos'), fn ($query) => $query->open()->inWindow())
             ->get();
 
         $busy = 0;

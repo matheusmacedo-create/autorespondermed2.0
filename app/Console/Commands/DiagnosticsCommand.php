@@ -49,6 +49,20 @@ class DiagnosticsCommand extends Command
             config('services.woovi.webhook.verify_signature') ? 'conferida' : 'DESLIGADA',
         );
         $this->check('Woovi base URL', 'ok', (string) config('services.woovi.base_url'));
+        $this->check(
+            'Defesa com IA (Claude)',
+            filled(config('services.anthropic.api_key')) ? 'ok' : 'warn',
+            filled(config('services.anthropic.api_key'))
+                ? 'ligada: '.config('services.anthropic.model').', effort '.config('services.anthropic.effort')
+                : 'desligada (ANTHROPIC_API_KEY vazio): botão "Gerar defesa com IA" escondido',
+        );
+        $this->check(
+            'Conta mestre Woovi (importação)',
+            filled(config('services.woovi.master_app_id')) ? 'ok' : 'warn',
+            filled(config('services.woovi.master_app_id'))
+                ? 'definida: subcontas importadas de hora em hora (med:importar-contas)'
+                : 'vazia (WOOVI_MASTER_APP_ID): contas só à mão ou pelo unico-api',
+        );
 
         $mailer = (string) config('mail.default');
         $this->check('E-mail ao seller', in_array($mailer, ['log', 'array'], true) ? ($production ? 'fail' : 'warn') : 'ok', "mailer {$mailer}, de ".config('mail.from.address'));
@@ -165,7 +179,7 @@ class DiagnosticsCommand extends Command
         } else {
             $missing = array_keys(array_filter([
                 'UNICOPAG_API_KEY' => blank(config('services.unicopag.key')),
-                'UNICOPAG_SALE_ENDPOINT (rota ainda a criar no unico-api)' => blank(config('services.unicopag.sale_endpoint')),
+                'UNICOPAG_SALE_ENDPOINT (venda no unico-api)' => blank(config('services.unicopag.sale_endpoint')),
             ]));
 
             $this->check('Dossiê automático', $missing === [] ? 'ok' : 'warn', $missing === []

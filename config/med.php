@@ -11,6 +11,79 @@ return [
     'prazo_resposta_horas' => (int) env('MED_PRAZO_RESPOSTA_HORAS', 72),
 
     /*
+    | Prazo que a Woovi aplica de fato para receber evidência, medido em 26/10/2026
+    | (~96h da abertura; ela recusa com "prazo ter expirado"). O envio não tenta
+    | caso mais velho que isto.
+    */
+    'prazo_woovi_horas' => (int) env('MED_PRAZO_WOOVI_HORAS', 96),
+
+    /*
+    | Resposta automática: de hora em hora o `med:responder` responde sozinho os MEDs
+    | que já têm tudo (mesmos critérios do envio em lote). `incluir_nao_defender`
+    | contesta também os que a IA marca "não defender" (pagador diferente do cliente
+    | da cobrança, KYC não aprovado, venda não localizada) - decisão da operação em
+    | 28/10/2026, para analisar depois a decisão da Woovi (`med:resultados`). Dado
+    | incoerente (valor, devolução já feita) continua fora.
+    */
+    'resposta_automatica' => [
+        'habilitada' => (bool) env('MED_RESPOSTA_AUTOMATICA', false),
+        'incluir_nao_defender' => (bool) env('MED_DEFENDER_NAO_RECOMENDADOS', false),
+    ],
+
+    /*
+    | Janela de trabalho: a fila, o painel e a sincronização olham só os MEDs
+    | abertos nos últimos N dias (`Dispute::inWindow()`); `med:podar` apaga o
+    | resto. 0 = sem janela.
+    */
+    'janela_dias' => (int) env('MED_JANELA_DIAS', 14),
+
+    /*
+    | Aviso ao lojista (e-mail e WhatsApp). Desligado até a operação estar
+    | organizada: o caso é montado e a defesa preparada sem falar com o lojista,
+    | e o link da ficha pode ser mandado à mão. Ligar avisa, na próxima montagem
+    | do dossiê, quem ainda não foi avisado.
+    */
+    'aviso_lojista' => (bool) env('MED_AVISO_LOJISTA', false),
+
+    /*
+    | Defesa com IA preparada sozinha depois da montagem do dossiê (caso aberto,
+    | sem rascunho ainda, com a chave da Anthropic). Nada vai à Woovi por isso.
+    */
+    'ia_automatica' => (bool) env('MED_IA_AUTOMATICA', true),
+
+    /*
+    | Carta de defesa no formato da Compliance (modelo usado pela operação antes do
+    | sistema): cabeçalho com requerente, data, valor e produto; o texto da defesa;
+    | os canais oficiais de atendimento; o pedido de indeferimento e a assinatura.
+    | A política de entrega é a que as lojas da plataforma publicam (até 3 dias úteis
+    | para o rastreio e 10 a 15 dias úteis para a entrega): a IA compara o tempo
+    | decorrido com ela antes de recomendar.
+    */
+    'lojas' => [
+        // Print das políticas (entrega, termos, trocas) do site de cada loja, uma vez
+        // por loja; recaptura depois de N dias. Requer Node e o Chromium em
+        // storage/browser (doc/DEPLOY_FORGE.md).
+        'captura_habilitada' => (bool) env('MED_LOJAS_CAPTURA', true),
+        'recapturar_dias' => (int) env('MED_LOJAS_RECAPTURAR_DIAS', 30),
+        'node' => env('MED_NODE_BINARY', 'node'),
+        'browser_dir' => env('MED_BROWSER_DIR', storage_path('browser')),
+        'timeout_segundos' => (int) env('MED_LOJAS_TIMEOUT', 180),
+    ],
+
+    'defesa' => [
+        'assinatura' => env('MED_DEFESA_ASSINATURA', 'Compliance Único Pag'),
+        'whatsapp' => env('MED_DEFESA_WHATSAPP', '(11) 8890-1256'),
+        'email' => env('MED_DEFESA_EMAIL', 'contato@unicopag.com'),
+        'prazo_rastreio_dias_uteis' => (int) env('MED_PRAZO_RASTREIO_DIAS_UTEIS', 3),
+        'prazo_entrega_dias_uteis_min' => (int) env('MED_PRAZO_ENTREGA_DIAS_UTEIS_MIN', 10),
+        'prazo_entrega_dias_uteis' => (int) env('MED_PRAZO_ENTREGA_DIAS_UTEIS', 15),
+        // Prazos acima como política de TODAS as lojas, confirmado pela operação. Sem
+        // isso a defesa só cita prazo de loja quando a política foi capturada do site
+        // dela (a carta vai ao banco: política não conferida não pode ser afirmada).
+        'politica_padrao_confirmada' => (bool) env('MED_POLITICA_PADRAO_CONFIRMADA', false),
+    ],
+
+    /*
     | Fila de análise: com quantas horas restantes o prazo fica amarelo e
     | vermelho na fila e no painel.
     */

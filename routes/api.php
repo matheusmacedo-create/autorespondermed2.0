@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\KapsoWebhookController;
+use App\Http\Controllers\Api\RiskOpsDisputesController;
 use App\Http\Controllers\Api\WooviAccountApiController;
 use App\Http\Controllers\Api\WooviWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -22,4 +23,11 @@ Route::post('webhooks/kapso', KapsoWebhookController::class)
 Route::middleware('service-api-key:services.api.key')->group(function () {
     Route::put('woovi-accounts', [WooviAccountApiController::class, 'upsert']);
     Route::get('woovi-accounts/{accountId}/disputes', [WooviAccountApiController::class, 'disputes']);
+});
+
+// RiskOps do KYC: MEDs e chargebacks por conta, só leitura e sem dado do pagador.
+// Chave própria (services.riskops.key), separada da do unico-api.
+Route::middleware(['service-api-key:services.riskops.key', 'throttle:60,1'])->group(function () {
+    Route::get('riskops/disputas', [RiskOpsDisputesController::class, 'index']);
+    Route::get('riskops/disputas/{conta}', [RiskOpsDisputesController::class, 'show']);
 });

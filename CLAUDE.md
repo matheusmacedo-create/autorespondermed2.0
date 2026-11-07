@@ -45,7 +45,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - `app/Services/Woovi/` - cliente da API e verificação da assinatura do webhook.
 - `app/Livewire/Med/SellerDefenseForm.php` - formulário público `/med/{token}`.
 - `app/Filament/Resources/Disputes` (fila e ficha) e `WooviAccounts` (contas e AppIDs).
-- `routes/api.php` - webhook da Woovi (um por conta) e a ponte com o unico-api (X-API-Key).
+- `routes/api.php` - webhook da Woovi (um por conta), a ponte com o unico-api (X-API-Key) e as rotas de leitura do
+  RiskOps do KYC (`/api/riskops/disputas`, chave própria `RISKOPS_API_KEY`; conta = `Dispute::platformAccountId()`,
+  porque na conta mestre a conta Woovi não tem `unicopag_account_id`; nunca dado do pagador).
 
 ## Permissões
 - spatie/laravel-permission, como o KYC. Catálogo em `app/Support/Permissions.php` (papéis Super Admin, Admin,

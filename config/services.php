@@ -94,6 +94,12 @@ return [
         'key' => env('API_KEY'),
     ],
 
+    // RiskOps do KYC (header X-API-Key) lendo MEDs e chargebacks por conta. Chave
+    // própria, só destas rotas de leitura. Sem valor = rotas negam (fail-closed).
+    'riskops' => [
+        'key' => env('RISKOPS_API_KEY'),
+    ],
+
     // unico-api (plataforma ÚnicoPag), chamado PELO MED para montar o dossiê. Mesmo
     // esquema de autenticação do KYC (X-API-Key + Bearer). O ideal é uma integração
     // própria `med`, só de leitura, no unico-api - a chave `kyc` também escreve.

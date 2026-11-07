@@ -462,6 +462,9 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-11-07** - rotas de leitura para o RiskOps do KYC (`GET /api/riskops/disputas` e `/{conta}`, X-API-Key
+  `RISKOPS_API_KEY`): o MED continua em SQLite no servidor e o KYC lê por API, não pelo banco. A conta agrupada é
+  a do lojista da venda (`merchant_account_id`), com a da subconta Woovi como reserva.
 - **2026-11-06** - chargeback passa a ser defendido como o MED (`med:responder`), a pedido da operação: o único
   dinheiro perdido desde 26/10 foi um chargeback sem resposta (Pix do #273, R$ 193,91).
 - **2026-10-29** - um caso por disputa da Woovi, não por Pix (2.5); GET só por endToEndId e devolve a mais

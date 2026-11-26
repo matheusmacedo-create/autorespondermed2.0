@@ -3,13 +3,14 @@
 namespace App\Jobs;
 
 use App\Actions\Med\IngestDisputeAction;
+use App\Actions\Med\IngestTransfeeraInfractionAction;
 use App\Models\WooviWebhookCall;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
 
 /**
- * Processa uma chamada de webhook já gravada. Erro fica na própria chamada
+ * Processa uma chamada de webhook já gravada (Woovi ou Transfeera, pela conta). Erro fica na própria chamada
  * (woovi_webhook_calls.error) e o job tenta de novo com espera crescente.
  */
 class ProcessWooviWebhookCall implements ShouldQueue
@@ -25,7 +26,7 @@ class ProcessWooviWebhookCall implements ShouldQueue
 
     public function __construct(public int $webhookCallId) {}
 
-    public function handle(IngestDisputeAction $ingest): void
+    public function handle(IngestDisputeAction $ingest, IngestTransfeeraInfractionAction $ingestTransfeera): void
     {
         $call = WooviWebhookCall::query()->with('wooviAccount')->find($this->webhookCallId);
 
@@ -34,10 +35,11 @@ class ProcessWooviWebhookCall implements ShouldQueue
         }
 
         $payload = $call->decodedPayload();
-        $dispute = (array) ($payload['dispute'] ?? []);
 
         try {
-            $record = $ingest->handle($call->wooviAccount, $dispute, 'webhook', $call->event);
+            $record = $call->wooviAccount->isTransfeera()
+                ? $ingestTransfeera->handle($call->wooviAccount, (array) ($payload['data'] ?? []), 'webhook')
+                : $ingest->handle($call->wooviAccount, (array) ($payload['dispute'] ?? []), 'webhook', $call->event);
 
             $call->forceFill([
                 'dispute_id' => $record->id,

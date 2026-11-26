@@ -1,12 +1,13 @@
 # MED - Base de Conhecimento
 
 > **Documento vivo.** Registra como o responder de MED **é** e o que se sabe do contrato da Woovi.
-> Última atualização: 2026-10-12 (dossiê automático e envio automático).
+> Última atualização: 2026-11-26 (Transfeera, seção 12).
 
 Mesma regra do KYC: comportamento e decisão vêm para cá; o que falta fazer vai para o card. Cada fato diz
 como foi apurado - `[doc-woovi]` documentação pública da Woovi, `[openapi]` spec do repo
 `Open-Pix/woovi-developers`, `[código]` lido no fonte deste repo, `[kyc]` herdado da base do KYC,
-`[inferido]` dedução não confirmada, `[decisão]` acordado com o negócio.
+`[inferido]` dedução não confirmada, `[decisão]` acordado com o negócio, `[doc-transfeera]` documentação pública
+da Transfeera (docs.transfeera.dev).
 
 ---
 
@@ -465,8 +466,80 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 - Decisão: enquanto a operação se organiza, nenhum aviso sai ao lojista (`MED_AVISO_LOJISTA=false`), o painel
   mostra só os últimos 14 dias e cada caso já chega com a defesa da IA para o analista revisar.
 
+## 12. Transfeera (26/11/2026) `[doc-transfeera]` `[código]`
+
+A ÚnicoPag passou a receber Pix também pela Transfeera, e os MEDs de lá são respondidos por este mesmo sistema.
+**Tudo nesta seção foi lido na doc pública (docs.transfeera.dev) e coberto com API falsa nos testes; nenhuma
+chamada real foi feita ainda** - conferir os itens de "Em aberto" na primeira infração de verdade.
+
+**Desenho.** A conta ganhou `provider` (`woovi` | `transfeera`, enum `Provider`). A tabela e as colunas `woovi_*`
+ficaram com o nome antigo de propósito; na Transfeera `app_id` guarda `client_id:client_secret`,
+`woovi_company_id` o id da subconta (opcional), `webhook_secret` o segredo do webhook, `woovi_dispute_id` o id da
+infração e `woovi_status` o status dela. Fila, link do lojista, dossiê, conferência, IA, carta, `med:responder`,
+placar e RiskOps são os mesmos: o `InfractionMapper` traduz a infração e o Pix recebido para os campos que o
+fluxo já lia da Woovi.
+
+| Uso | Endpoint | Observação |
+|---|---|---|
+| Token | `POST login-api.transfeera.com/authorization` `{grant_type: client_credentials, client_id, client_secret, scope?}` | vale 30 min (`expires_in`), em cache por conta; subconta = `scope: "account_id:<id>"` |
+| Listar | `GET /med/infractions?infraction_date__gte&page_size&page_cursor` | cursor em `meta.next`; filtra também por `analysis_status__in`, `transaction_id`, `payer_tax_id` |
+| Ler | `GET /med/infractions/{id}` | pelo id da infração (não pelo endToEndId) |
+| Responder | `POST /med/infractions/{id}/analysis` multipart: `analysis` (`rejected` = contesta, `accepted` = concorda), `analysis_description`, `attachments[]` | PDF, zip/rar, JPEG/PNG, até 15 MB; só com `analysis_status = pending`; **não dá para editar nem completar depois** |
+| Aceitar em lote | `POST /med/infractions/analysis` `{infraction_ids, analysis: accepted}` | só aceita; não usado |
+| Pix recebido | `GET /pix/cashin/{end2endId}` | `value` em **reais**, `txid`, `integration_id`, pagador, `receipt_file_url`; **sem data** |
+| Devoluções | `GET /pix/cashin/{end2endId}/refund` | `entries[]`, valor negativo, `return_id` |
+| Webhook | `POST /webhook` `{url, object_types: ["Infraction"]}` -> `{id, signature_secret}`; `GET /webhook` devolve o segredo também | um webhook só por conta |
+
+- **Headers**: `Authorization: Bearer <token>` e `User-Agent: Empresa (email)` em toda chamada
+  (`TRANSFEERA_USER_AGENT`). A doc cita dois hosts de produção: `api.transfeera.com` (OpenAPI) e
+  `api.mtls.transfeera.com` (página de endpoints, com certificado). O cliente aceita os dois
+  (`TRANSFEERA_BASE_URL`, `TRANSFEERA_LOGIN_URL`, `TRANSFEERA_MTLS_CERT`/`_KEY`). A produção pede o IP de saída
+  liberado pelo suporte.
+- **Status**: `status` é a decisão final da Transfeera (`pending`, `agreed`, `disagreed`, `canceled`);
+  `analysis_status` é a resposta da empresa (`pending`, `accepted`, `rejected`, `delayed`). **`agreed` = infração
+  procedente, o lojista perdeu (interno `accepted`); `disagreed` = o lojista ganhou (interno `rejected`).** Não
+  inverter, como na Woovi (2.3).
+- **Prazo**: cada infração traz `analysis_due_date` - vira o `respond_by` do caso e é o prazo que o
+  `med:responder` respeita ("prazo da Transfeera expirado"). Os exemplos da doc variam de 3 a 6 dias; não há
+  número fixo. O prazo de 96h medido na Woovi não se aplica.
+- **Valores**: a infração vem em centavos (`amount`), o Pix recebido em reais - o mapper converte.
+- **Webhook**: envelope `{id, version, account_id, object: "Infraction", date, data: {...infração, txid}}`, um
+  evento para tudo (nova, analisada, decidida). Assinatura no header `Transfeera-Signature: t=<ts>,v1=<hex>`,
+  `v1 = HMAC-SHA256("<ts>.<corpo bruto>", signature_secret)`; o teste usa o vetor da doc. Sem 2xx a Transfeera
+  tenta só mais 2 vezes - a sincronização de hora em hora cobre. O segredo só chega aqui pela ação "Cadastrar
+  webhooks" (ou `med:registrar-webhooks`); webhook criado à mão no painel da Transfeera é recusado (401) até a
+  ação rodar, porque ela lê o segredo no `GET /webhook`.
+- **Resposta** (`SendEvidenceToWooviAction::sendToTransfeera`): relê a infração, e só envia se a análise ainda
+  não foi registrada; manda `analysis=rejected`, o texto da defesa (cortado em `TRANSFEERA_DESCRICAO_MAX`, com a
+  íntegra na carta) e os anexos, carta primeiro. WEBP e o que passar de 15 MB no total ficam fora, com aviso na
+  linha do tempo. Se o envio der erro, relê: análise registrada = enviado (resposta que se perdeu no caminho).
+- **Respondida fora daqui**: infração com `analysis_status` `accepted`/`rejected` e caso ainda aberto vai para
+  "Resposta enviada" sem `evidence_sent_at` (fora do placar), sem aviso ao lojista nem dossiê.
+- **Dossiê**: alegação = a própria infração relida (`situation_type`, `infraction_description` - o relato de quem
+  contestou, que vai para a IA -, `is_first_layer` e o CPF/CNPJ inteiro do pagador); transação = o Pix recebido,
+  com a hora tirada do endToEndId (`E` + ISPB + `AAAAMMDDHHmm` em UTC), porque o cash-in não tem data; o
+  documento do pagador no cash-in pode vir mascarado, então vale o da infração. Não há "cobrança": com `txid`
+  o item "Pix pagou uma cobrança" fica ok como QR Code do recebedor, e **"quem pagou é o cliente" compara com o
+  cliente do pedido na plataforma** (`sale.customer.document`), não com o cliente da cobrança. A venda é buscada
+  no unico-api com `correlation_id = integration_id`, `txid` e o endToEndId.
+- **LGPD**: o CPF do pagador não entra em `disputes.raw` (sem criptografia); fica na fonte da alegação, que é
+  criptografada.
+
+**Em aberto (conferir com chamada real ou com o suporte da Transfeera):**
+1. Se o campo dos arquivos no multipart é `attachments` repetido (como está) ou `attachments[]`.
+2. Tamanho máximo de `analysis_description` e se os 15 MB são por arquivo ou do envio.
+3. Se `delayed` ainda aceita análise (hoje o `med:responder` não tenta; o botão da ficha tenta).
+4. Se a produção exige mTLS e qual host vale; liberar o IP de saída do servidor.
+5. Se um mesmo endToEndId pode ter mais de uma infração (o caso é por id da infração, então não se misturam).
+6. Se o unico-api acha a venda de um Pix da Transfeera pela rota `/api/med/sales/lookup` (por `txid`,
+   `integration_id` ou endToEndId). Sem a venda não há lojista, produto nem conferência do pagador.
+7. Não há como simular infração no sandbox pela doc: pedir ao suporte.
+8. O comprovante `/pub/receipt/...` é público pelo link; não há rota documentada para emiti-lo de novo.
+
 ## Histórico de atualizações
 
+- **2026-11-26** - Transfeera como segunda instituição (seção 12): `provider` na conta, webhook `Infraction`,
+  sincronização, dossiê pelo Pix recebido e resposta em uma chamada (`analysis=rejected`).
 - **2026-11-26** - SQLite de produção com WAL, busy_timeout e transação IMMEDIATE (seção 7).
 - **2026-11-07** - rotas de leitura para o RiskOps do KYC (`GET /api/riskops/disputas` e `/{conta}`, X-API-Key
   `RISKOPS_API_KEY`): o MED continua em SQLite no servidor e o KYC lê por API, não pelo banco. A conta agrupada é

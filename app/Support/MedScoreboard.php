@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Enums\DisputeStatus;
+use App\Enums\Provider;
 use App\Models\Dispute;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -79,7 +80,10 @@ final class MedScoreboard
 
         return $this->unanswered
             ->reject(fn (Dispute $dispute): bool => $dispute->status->isClosed())
-            ->filter(fn (Dispute $dispute): bool => $withinDeadline === (bool) $dispute->opened_at?->copy()->addHours($hours)->isFuture());
+            // Transfeera: o prazo é o da própria infração (`respond_by`).
+            ->filter(fn (Dispute $dispute): bool => $withinDeadline === (bool) ($dispute->provider() === Provider::TRANSFEERA
+                ? $dispute->respond_by?->isFuture()
+                : $dispute->opened_at?->copy()->addHours($hours)->isFuture()));
     }
 
     /**

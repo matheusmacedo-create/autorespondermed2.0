@@ -4,18 +4,22 @@ namespace App\Actions\Med;
 
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
+use App\Enums\EvidenceKind;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
 use App\Services\DiscordNotificationService;
 use App\Services\DisputeEventRecorder;
+use App\Services\Transfeera\TransfeeraClient;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
 use App\Support\DisputeLock;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\URL;
 use RuntimeException;
 
 /**
- * Responde o MED na Woovi: gera a carta de defesa, sobe os arquivos ainda não
+ * Responde o MED na instituição da conta. Na Transfeera é uma chamada só, com texto
+ * e anexos ({@see sendToTransfeera()}). Na Woovi: gera a carta de defesa, sobe os arquivos ainda não
  * enviados e chama POST /api/v1/dispute/{id}/evidence com todos de uma vez.
  *
  * Só marca como enviado depois que a Woovi confirma (padrão "escrever local
@@ -69,6 +73,10 @@ class SendEvidenceToWooviAction
             throw new RuntimeException('Nenhuma evidência nova para enviar.');
         }
 
+        if ($dispute->wooviAccount->isTransfeera()) {
+            return $this->sendToTransfeera($dispute, $pending, $userId, $source);
+        }
+
         $client = WooviClient::for($dispute->wooviAccount);
         $mode = $this->initialMode($dispute);
 
@@ -113,6 +121,137 @@ class SendEvidenceToWooviAction
             ])->save();
         }
 
+        $this->markSent($dispute, $pending, $userId, $source, $mode, sprintf('%d documento(s) enviados à Woovi (%s).', $pending->count(), self::modeLabel($mode)));
+
+        return $pending->count();
+    }
+
+    /**
+     * Transfeera: a resposta é uma chamada só, `POST /med/infractions/{id}/analysis`,
+     * com `analysis=rejected` (a empresa rejeita a infração), o texto da defesa e os
+     * arquivos. Não dá para editar nem completar depois - por isso a infração é
+     * relida antes, e uma falha no envio relê de novo: se a análise ficou registrada
+     * (resposta que se perdeu no caminho), o caso é marcado como enviado.
+     *
+     * @param  Collection<int, DisputeEvidence>  $pending
+     */
+    private function sendToTransfeera(Dispute $dispute, Collection $pending, ?int $userId, string $source): int
+    {
+        if (blank($dispute->woovi_dispute_id)) {
+            throw new RuntimeException('Caso sem o id da infração na Transfeera.');
+        }
+
+        try {
+            $client = TransfeeraClient::for($dispute->wooviAccount);
+            $analysis = strtolower((string) ($client->getInfraction($dispute->woovi_dispute_id)['analysis_status'] ?? ''));
+        } catch (WooviException $e) {
+            $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode], $source);
+
+            throw $e;
+        }
+
+        if (in_array($analysis, ['accepted', 'rejected'], true)) {
+            $message = "A Transfeera já tem uma análise registrada para esta infração ({$analysis}) e não aceita outra.";
+            $this->fail($dispute, $pending, $message, ['analysis_status' => $analysis], $source);
+
+            throw new RuntimeException($message);
+        }
+
+        [$attachments, $included, $skipped] = $this->transfeeraAttachments($pending);
+
+        if ($skipped !== []) {
+            $this->events->record(
+                DisputeEventType::EVIDENCE_SEND_FAILED,
+                $dispute,
+                'Ficaram fora do envio à Transfeera (formato não aceito ou acima de 15 MB no total): '.implode(', ', $skipped).'.',
+                level: 'warning',
+            );
+        }
+
+        try {
+            $client->submitAnalysis($dispute->woovi_dispute_id, 'rejected', $this->transfeeraDescription($dispute), $attachments);
+        } catch (WooviException $e) {
+            $registered = rescue(fn () => strtolower((string) ($client->getInfraction($dispute->woovi_dispute_id)['analysis_status'] ?? '')), null, report: false);
+
+            if ($registered !== 'rejected') {
+                $this->fail($dispute, $pending, $e->getMessage(), ['status' => $e->status, 'error_code' => $e->errorCode], $source);
+
+                throw $e;
+            }
+        }
+
+        $this->markSent($dispute, $included, $userId, $source, 'transfeera', sprintf('Infração contestada na Transfeera com %d documento(s).', $included->count()));
+
+        return $included->count();
+    }
+
+    /**
+     * Anexos que a Transfeera aceita: PDF, imagem JPEG/PNG e compactado (zip/rar), até
+     * 15 MB. A doc não diz se o limite é por arquivo ou do envio - vale o do envio. A
+     * carta de defesa vai primeiro, e o que não couber fica fora (e registrado).
+     *
+     * @param  Collection<int, DisputeEvidence>  $pending
+     * @return array{0: array<int, array{contents: string, name: string, mime: string}>, 1: Collection<int, DisputeEvidence>, 2: array<int, string>}
+     */
+    private function transfeeraAttachments(Collection $pending): array
+    {
+        $budget = (int) config('services.transfeera.attachments_max_bytes', 15 * 1024 * 1024);
+        $allowed = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-rar-compressed', 'application/vnd.rar'];
+        $attachments = [];
+        $included = new Collection;
+        $skipped = [];
+
+        $ordered = $pending->sortBy(fn (DisputeEvidence $evidence): int => $evidence->kind === EvidenceKind::DEFENSE_LETTER ? 0 : 1)->values();
+
+        foreach ($ordered as $evidence) {
+            $size = (int) ($evidence->size ?: strlen($evidence->contents()));
+
+            if (! in_array($evidence->mime_type, $allowed, true) || $size > $budget) {
+                $skipped[] = (string) $evidence->original_name;
+
+                continue;
+            }
+
+            $budget -= $size;
+            $attachments[] = ['contents' => $evidence->contents(), 'name' => (string) $evidence->original_name, 'mime' => (string) $evidence->mime_type];
+            $included->push($evidence);
+        }
+
+        return [$attachments, $included, $skipped];
+    }
+
+    /**
+     * Texto da análise: a defesa (a mesma que vai na carta), cortada no limite
+     * configurado - a doc não informa o tamanho máximo do campo.
+     */
+    private function transfeeraDescription(Dispute $dispute): string
+    {
+        $text = trim((string) $dispute->defense_text);
+        $max = max(200, (int) config('services.transfeera.description_max', 4000));
+        $tail = ' [...] A defesa completa e as evidências seguem na carta de defesa anexa.';
+
+        if ($text === '') {
+            return 'A empresa rejeita a infração: a transação corresponde a uma venda legítima. A defesa completa e as evidências seguem na carta de defesa anexa.';
+        }
+
+        return mb_strlen($text) <= $max ? $text : rtrim(mb_substr($text, 0, $max - mb_strlen($tail))).$tail;
+    }
+
+    /**
+     * @param  iterable<DisputeEvidence>  $sent
+     */
+    private function markSent(Dispute $dispute, iterable $sent, ?int $userId, string $source, string $mode, string $message): void
+    {
+        $ids = [];
+
+        foreach ($sent as $evidence) {
+            $ids[] = $evidence->id;
+
+            if ($evidence->sent_at === null) {
+                $evidence->fill(['sent_at' => now(), 'last_error' => null])->save();
+            }
+        }
+
         $dispute->fill([
             'status' => DisputeStatus::EVIDENCE_SENT,
             'evidence_sent_at' => now(),
@@ -122,14 +261,12 @@ class SendEvidenceToWooviAction
         $this->events->record(
             DisputeEventType::EVIDENCE_SENT,
             $dispute,
-            sprintf('%d documento(s) enviados à Woovi (%s).', $pending->count(), self::modeLabel($mode)),
+            $message,
             // A recomendação da IA no momento do envio: é o que o med:resultados cruza
-            // com a decisão da Woovi.
-            ['evidence_ids' => $pending->pluck('id')->all(), 'mode' => $mode, 'ai_recommendation' => data_get($dispute->ai_defense, 'recommendation')],
+            // com a decisão da instituição.
+            ['evidence_ids' => $ids, 'mode' => $mode, 'ai_recommendation' => data_get($dispute->ai_defense, 'recommendation')],
             source: $source,
         );
-
-        return $pending->count();
     }
 
     /**

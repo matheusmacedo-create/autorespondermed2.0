@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Provider;
 use App\Enums\WooviAccountSource;
 use Database\Factories\WooviAccountFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 /**
- * Conta Woovi de um seller. O AppID é a credencial que lê as disputas e envia
+ * Conta de um seller na instituição (Woovi ou Transfeera, `provider`; o nome da
+ * tabela ficou da primeira). O AppID - na Transfeera, "client_id:client_secret" - é a credencial que lê as disputas e envia
  * as evidências daquela conta - fica criptografado (APP_KEY) e nunca sai na
  * serialização.
  */
@@ -20,6 +22,7 @@ class WooviAccount extends Model
     use HasFactory;
 
     protected $fillable = [
+        'provider',
         'name',
         'tax_id',
         'unicopag_account_id',
@@ -39,12 +42,19 @@ class WooviAccount extends Model
     protected $hidden = [
         'app_id',
         'webhook_key',
+        'webhook_secret',
+    ];
+
+    protected $attributes = [
+        'provider' => 'woovi',
     ];
 
     protected function casts(): array
     {
         return [
+            'provider' => Provider::class,
             'app_id' => 'encrypted',
+            'webhook_secret' => 'encrypted',
             'source' => WooviAccountSource::class,
             'is_active' => 'boolean',
             'auto_send' => 'boolean',
@@ -67,10 +77,15 @@ class WooviAccount extends Model
     }
 
     /**
-     * URL que a Woovi chama para os eventos de disputa desta conta.
+     * URL que a instituição chama para os eventos de disputa desta conta.
      */
     public function webhookUrl(): string
     {
-        return route('webhooks.woovi', ['webhookKey' => $this->webhook_key]);
+        return route($this->isTransfeera() ? 'webhooks.transfeera' : 'webhooks.woovi', ['webhookKey' => $this->webhook_key]);
+    }
+
+    public function isTransfeera(): bool
+    {
+        return $this->provider === Provider::TRANSFEERA;
     }
 }

@@ -14,6 +14,9 @@ use App\Services\Defense\DefenseWriter;
 use App\Services\DisputeEventRecorder;
 use App\Services\Kyc\KycClient;
 use App\Services\SellerNotifier;
+use App\Services\Transfeera\InfractionMapper;
+use App\Services\Transfeera\TransfeeraClient;
+use App\Services\Transfeera\TransfeeraException;
 use App\Services\Unicopag\UnicopagClient;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
@@ -64,80 +67,14 @@ class BuildDossierAction
     private function build(Dispute $dispute, bool $refresh, array $refreshSources): Dispute
     {
         $dispute->loadMissing('wooviAccount');
-        $woovi = WooviClient::for($dispute->wooviAccount);
         $accountId = (string) $dispute->wooviAccount->unicopag_account_id;
         $again = fn (DossierSource $source): bool => $refresh || in_array($source, $refreshSources, true);
 
-        $transaction = $this->fetch($dispute, DossierSource::WOOVI_TRANSACTION, $again, function () use ($woovi, $dispute) {
-            return $this->wooviOrNotFound(fn () => $woovi->getTransaction($dispute->end_to_end_id));
-        });
-
-        $correlationId = $this->string(data_get($transaction, 'charge.correlationID'));
-
-        // Sem a transação, o que depende dela fica "skipped" e é reavaliado na
-        // próxima montagem - não é a mesma coisa que Pix avulso (transação ok sem
-        // cobrança), que é resposta definitiva.
-        $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $again, function () use ($woovi, $transaction, $correlationId) {
-            if ($transaction === null || $correlationId === null) {
-                return [SourceStatus::SKIPPED, null];
-            }
-
-            return $this->wooviOrNotFound(fn () => $woovi->getCharge($correlationId));
-        });
-
-        $this->fetch($dispute, DossierSource::WOOVI_REFUNDS, $again, function () use ($woovi, $transaction, $correlationId) {
-            if ($transaction === null || $correlationId === null) {
-                return [SourceStatus::SKIPPED, null];
-            }
-
-            return $this->wooviOrNotFound(fn () => ['refunds' => $woovi->getChargeRefunds($correlationId)]);
-        });
-
-        $this->fetch($dispute, DossierSource::WOOVI_RECEIPT, $again, function () use ($woovi, $dispute, $transaction) {
-            if (! config('med.dossie.comprovante_woovi') || $transaction === null) {
-                return [SourceStatus::SKIPPED, null];
-            }
-
-            $result = $this->wooviOrNotFound(fn () => ['pdf' => $woovi->getPixInReceipt($dispute->end_to_end_id)]);
-
-            if ($result[0] !== SourceStatus::OK) {
-                return $result;
-            }
-
-            $this->storeSystemEvidence->handle(
-                $dispute,
-                DossierSource::WOOVI_RECEIPT->value,
-                EvidenceKind::PIX_RECEIPT,
-                $result[1]['pdf'],
-                "comprovante-pix-{$dispute->end_to_end_id}.pdf",
-                'application/pdf',
-                'Comprovante emitido pela Woovi, instituição do recebedor',
-                // O PDF pode mudar de bytes a cada download (data de emissão): o
-                // comprovante de um endToEndId é sempre o mesmo documento.
-                fingerprint: hash('sha256', 'woovi-receipt:'.$dispute->end_to_end_id),
-            );
-
-            // O PDF já virou evidência; o payload guarda só que ele existe.
-            return [SourceStatus::OK, ['stored' => true]];
-        });
-
-        $this->fetch($dispute, DossierSource::WOOVI_FUNDS_RECOVERY, $again, function () use ($woovi, $dispute) {
-            try {
-                $disputes = $woovi->getFundsRecoveryDisputes($dispute->end_to_end_id);
-            } catch (WooviException $e) {
-                // 403 = conta sem a feature "MED API" (ou AppID sem escopo): é configuração.
-                return match (true) {
-                    $e->status === 403 => [SourceStatus::NOT_CONFIGURED, null],
-                    $e->isNotFound() => [SourceStatus::NOT_FOUND, null],
-                    default => throw $e,
-                };
-            }
-
-            $mine = collect($disputes)->first(fn (array $d): bool => ($d['endToEndId'] ?? null) === $dispute->end_to_end_id
-                && strtoupper((string) ($d['sentOrReceived'] ?? 'RECEIVED')) === 'RECEIVED');
-
-            return $mine === null ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $mine];
-        });
+        // Transação, devoluções, comprovante e alegação vêm da instituição da conta. A
+        // da Transfeera é gravada nos mesmos campos da Woovi: a conferência é uma só.
+        [$transaction, $correlationId] = $dispute->wooviAccount->isTransfeera()
+            ? $this->transfeeraSources($dispute, $again)
+            : $this->wooviSources($dispute, $again);
 
         $this->fetch($dispute, DossierSource::UNICOPAG_SALE, $again, function () use ($dispute, $accountId, $transaction, $correlationId) {
             // Sem account_id também: na conta mestre a venda é que diz de qual lojista é
@@ -265,6 +202,165 @@ class BuildDossierAction
         }
 
         return $dispute;
+    }
+
+    /**
+     * Fontes da Woovi: transação, cobrança, devoluções, comprovante e alegação.
+     *
+     * @param  Closure(DossierSource): bool  $again
+     * @return array{0: array<string, mixed>|null, 1: string|null} a transação e o correlationID da cobrança
+     */
+    private function wooviSources(Dispute $dispute, Closure $again): array
+    {
+        $woovi = WooviClient::for($dispute->wooviAccount);
+
+        $transaction = $this->fetch($dispute, DossierSource::WOOVI_TRANSACTION, $again, function () use ($woovi, $dispute) {
+            return $this->wooviOrNotFound(fn () => $woovi->getTransaction($dispute->end_to_end_id));
+        });
+
+        $correlationId = $this->string(data_get($transaction, 'charge.correlationID'));
+
+        // Sem a transação, o que depende dela fica "skipped" e é reavaliado na
+        // próxima montagem - não é a mesma coisa que Pix avulso (transação ok sem
+        // cobrança), que é resposta definitiva.
+        $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $again, function () use ($woovi, $transaction, $correlationId) {
+            if ($transaction === null || $correlationId === null) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            return $this->wooviOrNotFound(fn () => $woovi->getCharge($correlationId));
+        });
+
+        $this->fetch($dispute, DossierSource::WOOVI_REFUNDS, $again, function () use ($woovi, $transaction, $correlationId) {
+            if ($transaction === null || $correlationId === null) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            return $this->wooviOrNotFound(fn () => ['refunds' => $woovi->getChargeRefunds($correlationId)]);
+        });
+
+        $this->fetch($dispute, DossierSource::WOOVI_RECEIPT, $again, function () use ($woovi, $dispute, $transaction) {
+            if (! config('med.dossie.comprovante_woovi') || $transaction === null) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            $result = $this->wooviOrNotFound(fn () => ['pdf' => $woovi->getPixInReceipt($dispute->end_to_end_id)]);
+
+            if ($result[0] !== SourceStatus::OK) {
+                return $result;
+            }
+
+            $this->storeSystemEvidence->handle(
+                $dispute,
+                DossierSource::WOOVI_RECEIPT->value,
+                EvidenceKind::PIX_RECEIPT,
+                $result[1]['pdf'],
+                "comprovante-pix-{$dispute->end_to_end_id}.pdf",
+                'application/pdf',
+                'Comprovante emitido pela Woovi, instituição do recebedor',
+                // O PDF pode mudar de bytes a cada download (data de emissão): o
+                // comprovante de um endToEndId é sempre o mesmo documento.
+                fingerprint: hash('sha256', 'woovi-receipt:'.$dispute->end_to_end_id),
+            );
+
+            // O PDF já virou evidência; o payload guarda só que ele existe.
+            return [SourceStatus::OK, ['stored' => true]];
+        });
+
+        $this->fetch($dispute, DossierSource::WOOVI_FUNDS_RECOVERY, $again, function () use ($woovi, $dispute) {
+            try {
+                $disputes = $woovi->getFundsRecoveryDisputes($dispute->end_to_end_id);
+            } catch (WooviException $e) {
+                // 403 = conta sem a feature "MED API" (ou AppID sem escopo): é configuração.
+                return match (true) {
+                    $e->status === 403 => [SourceStatus::NOT_CONFIGURED, null],
+                    $e->isNotFound() => [SourceStatus::NOT_FOUND, null],
+                    default => throw $e,
+                };
+            }
+
+            $mine = collect($disputes)->first(fn (array $d): bool => ($d['endToEndId'] ?? null) === $dispute->end_to_end_id
+                && strtoupper((string) ($d['sentOrReceived'] ?? 'RECEIVED')) === 'RECEIVED');
+
+            return $mine === null ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $mine];
+        });
+
+        return [$transaction, $correlationId];
+    }
+
+    /**
+     * Fontes da Transfeera: o Pix recebido (`/pix/cashin`), as devoluções dele, o
+     * comprovante (link do próprio cash-in) e a infração relida (alegação, relato de
+     * quem contestou e documento do pagador). Não existe "cobrança" separada: o txid
+     * e o `integration_id` vêm no Pix.
+     *
+     * @param  Closure(DossierSource): bool  $again
+     * @return array{0: array<string, mixed>|null, 1: string|null} a transação e o integration_id
+     */
+    private function transfeeraSources(Dispute $dispute, Closure $again): array
+    {
+        $notFound = function (Closure $call): array {
+            try {
+                $payload = $call();
+            } catch (TransfeeraException $e) {
+                if ($e->isNotFound()) {
+                    return [SourceStatus::NOT_FOUND, null];
+                }
+
+                throw $e;
+            }
+
+            return $payload === [] ? [SourceStatus::NOT_FOUND, null] : [SourceStatus::OK, $payload];
+        };
+
+        // Primeiro a alegação: a infração traz o CPF/CNPJ inteiro de quem pagou (no
+        // Pix recebido ele pode vir mascarado).
+        $claim = $this->fetch($dispute, DossierSource::WOOVI_FUNDS_RECOVERY, $again, function () use ($dispute, $notFound) {
+            if (blank($dispute->woovi_dispute_id)) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            return $notFound(fn () => InfractionMapper::toClaimSource(TransfeeraClient::for($dispute->wooviAccount)->getInfraction($dispute->woovi_dispute_id)));
+        });
+
+        $transaction = $this->fetch($dispute, DossierSource::WOOVI_TRANSACTION, $again, function () use ($dispute, $claim, $notFound) {
+            return $notFound(function () use ($dispute, $claim): array {
+                $cashIn = TransfeeraClient::for($dispute->wooviAccount)->getCashIn($dispute->end_to_end_id);
+
+                return $cashIn === [] ? [] : InfractionMapper::toTransactionSource($cashIn, $dispute->end_to_end_id, data_get($claim, 'payerTaxId'));
+            });
+        });
+
+        $this->fetch($dispute, DossierSource::WOOVI_REFUNDS, $again, function () use ($dispute, $transaction, $notFound) {
+            if ($transaction === null) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            return $notFound(fn () => InfractionMapper::toRefundsSource(TransfeeraClient::for($dispute->wooviAccount)->getCashInRefunds($dispute->end_to_end_id)));
+        });
+
+        $this->fetch($dispute, DossierSource::WOOVI_RECEIPT, $again, function () use ($dispute, $transaction) {
+            $url = data_get($transaction, 'receiptUrl');
+
+            if (! config('med.dossie.comprovante_woovi') || ! is_string($url) || $url === '') {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            $this->storeSystemEvidence->handle(
+                $dispute,
+                DossierSource::WOOVI_RECEIPT->value,
+                EvidenceKind::PIX_RECEIPT,
+                TransfeeraClient::for($dispute->wooviAccount)->downloadReceipt($url),
+                "comprovante-pix-{$dispute->end_to_end_id}.pdf",
+                'application/pdf',
+                'Comprovante emitido pela Transfeera, instituição do recebedor',
+                fingerprint: hash('sha256', 'transfeera-receipt:'.$dispute->end_to_end_id),
+            );
+
+            return [SourceStatus::OK, ['stored' => true]];
+        });
+
+        return [$transaction, $this->string(data_get($transaction, 'integrationId'))];
     }
 
     /**

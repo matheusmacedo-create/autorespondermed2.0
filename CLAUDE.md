@@ -1,7 +1,7 @@
 # autorespondermed2.0
 
-Responder de MED da Unico.Pag: liga as contas Woovi dos sellers à operação da Unico.Pag e responde as
-contestações de Pix (MED, Mecanismo Especial de Devolução) pela API da Woovi. Mesmo desenho do KYC
+Responder de MED da Unico.Pag: liga as contas Woovi (e Transfeera) dos sellers à operação da Unico.Pag e responde as
+contestações de Pix (MED, Mecanismo Especial de Devolução) pela API da instituição da conta. Mesmo desenho do KYC
 (`unico-pag/unicopag-kyc`): link público por token para o seller, fila de análise no painel, trilha de
 eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "documento" é a evidência.
 
@@ -54,6 +54,17 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   Analista, Visualizador); a migração `2026_10_13_000002` cria tudo em todo deploy. Usuário sem papel não entra.
 - Toda ação nova do painel precisa de `->visible(fn () => Permissions::allows(...))`: o Filament recusa no
   servidor chamar ação escondida (`PermissionsTest::test_forced_call_to_a_hidden_action_does_nothing`).
+
+## Transfeera (segunda instituição)
+- A conta tem `provider` (`woovi` | `transfeera`). Tabela e colunas `woovi_*` mantêm o nome: na Transfeera
+  `app_id` = `client_id:client_secret`, `woovi_dispute_id` = id da infração, `woovi_status` = status dela,
+  `webhook_secret` = segredo do webhook. Cliente e tradução em `app/Services/Transfeera/` (`InfractionMapper`
+  converte a infração e o Pix recebido para os campos que o fluxo lê da Woovi).
+- `agreed` = lojista **perdeu**; `disagreed` = **ganhou**. A resposta é `POST /med/infractions/{id}/analysis`
+  com `analysis=rejected`, uma vez só (não edita nem completa) - por isso o envio relê a infração antes e depois
+  de um erro. O prazo é o `analysis_due_date` de cada infração (`respond_by`), não as 96h da Woovi.
+- Webhook em `/api/webhooks/transfeera/{webhook_key}`, assinado por HMAC (`Transfeera-Signature`); o segredo só
+  entra pela ação "Cadastrar webhooks". Contrato lido na doc, ainda sem chamada real: KB seção 12.
 
 ## WhatsApp (Kapso)
 - Mesmo número oficial e mesma chave do KYC, webhook e segredo próprios (`/api/webhooks/kapso`). A Kapso manda

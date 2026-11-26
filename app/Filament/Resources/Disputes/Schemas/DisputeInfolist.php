@@ -48,11 +48,11 @@ class DisputeInfolist
                                     ->color(fn (Dispute $record): string => $record->deadlineColor())
                                     ->placeholder('—'),
                                 TextEntry::make('type')->label('Tipo'),
-                                TextEntry::make('woovi_status')->label('Status na Woovi')->placeholder('—'),
+                                TextEntry::make('woovi_status')->label(fn (Dispute $record): string => 'Status na '.$record->provider()->label())->placeholder('—'),
                                 TextEntry::make('dispute_reason')->label('Motivo')->placeholder('—'),
                                 TextEntry::make('situation_type')->label('Situação')->placeholder('—'),
                                 TextEntry::make('opened_at')->label('Aberto em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('—'),
-                                TextEntry::make('evidence_sent_at')->label('Enviado à Woovi em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('—'),
+                                TextEntry::make('evidence_sent_at')->label(fn (Dispute $record): string => 'Enviado à '.$record->provider()->label().' em')->dateTime('d/m/Y H:i', 'America/Sao_Paulo')->placeholder('—'),
                                 TextEntry::make('end_to_end_id')->label('endToEndId')->copyable()->columnSpanFull(),
                             ]),
 

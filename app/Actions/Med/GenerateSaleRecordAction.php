@@ -32,6 +32,7 @@ class GenerateSaleRecordAction
 
         $pdf = Pdf::loadView('pdf.sale-record', $data + [
             'generatedAt' => now()->timezone('America/Sao_Paulo'),
+            'institution' => $dispute->provider()->label(),
         ])->setPaper('a4')->output();
 
         return $this->storeSystemEvidence->handle(

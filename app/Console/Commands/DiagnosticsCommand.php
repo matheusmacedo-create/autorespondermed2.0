@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\Provider;
 use App\Models\WooviAccount;
 use App\Support\Permissions;
 use Illuminate\Console\Command;
@@ -230,6 +231,19 @@ class DiagnosticsCommand extends Command
             $accounts > 0 && $withoutWebhook === 0 ? 'ok' : 'warn',
             $accounts === 0 ? 'nenhuma cadastrada' : "{$accounts}, {$withoutWebhook} sem webhook cadastrado (med:registrar-webhooks)",
         );
+
+        // Transfeera: sem o segredo guardado, o webhook de infração é recusado (401) e
+        // o MED só entra pela sincronização de hora em hora.
+        $transfeera = (int) rescue(fn () => WooviAccount::query()->where('is_active', true)->where('provider', Provider::TRANSFEERA->value)->count(), 0, report: false);
+
+        if ($transfeera > 0) {
+            $withoutSecret = (int) rescue(fn () => WooviAccount::query()->where('is_active', true)->where('provider', Provider::TRANSFEERA->value)->whereNull('webhook_secret')->count(), 0, report: false);
+            $this->check(
+                'Contas Transfeera ativas',
+                $withoutSecret === 0 ? 'ok' : 'warn',
+                "{$transfeera}, {$withoutSecret} sem o segredo do webhook (med:registrar-webhooks) · ".config('services.transfeera.base_url').' · User-Agent "'.config('services.transfeera.user_agent').'"',
+            );
+        }
     }
 
     /**

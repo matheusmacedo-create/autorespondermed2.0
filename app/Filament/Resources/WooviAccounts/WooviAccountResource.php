@@ -21,11 +21,11 @@ class WooviAccountResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::BuildingStorefront;
 
-    protected static ?string $navigationLabel = 'Contas Woovi';
+    protected static ?string $navigationLabel = 'Contas (Woovi e Transfeera)';
 
-    protected static ?string $modelLabel = 'conta Woovi';
+    protected static ?string $modelLabel = 'conta';
 
-    protected static ?string $pluralModelLabel = 'contas Woovi';
+    protected static ?string $pluralModelLabel = 'contas';
 
     protected static ?int $navigationSort = 3;
 

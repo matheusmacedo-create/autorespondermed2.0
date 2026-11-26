@@ -11,6 +11,7 @@ use App\Actions\Med\SyncDisputeAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
 use App\Enums\EvidenceKind;
+use App\Enums\Provider;
 use App\Jobs\GenerateAiDefense;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
@@ -40,11 +41,11 @@ class DisputeActions
     public static function sendToWoovi(): Action
     {
         return Action::make('sendToWoovi')
-            ->label('Enviar à Woovi')
+            ->label(fn (ViewRecord $livewire): string => 'Enviar à '.$livewire->getRecord()->provider()->label())
             ->icon('heroicon-o-paper-airplane')
             ->color('primary')
             ->requiresConfirmation()
-            ->modalHeading('Enviar a defesa à Woovi')
+            ->modalHeading(fn (ViewRecord $livewire): string => 'Enviar a defesa à '.$livewire->getRecord()->provider()->label())
             ->modalDescription(fn (ViewRecord $livewire): string => self::sendDescription($livewire->getRecord()))
             ->modalSubmitActionLabel('Enviar agora')
             ->visible(fn (ViewRecord $livewire): bool => Permissions::allows(Permissions::SEND_DISPUTES)
@@ -58,7 +59,7 @@ class DisputeActions
                     return;
                 }
 
-                Notification::make()->success()->title("{$sent} documento(s) enviados à Woovi")->send();
+                Notification::make()->success()->title("{$sent} documento(s) enviados à {$livewire->getRecord()->provider()->label()}")->send();
                 $livewire->getRecord()->refresh();
             });
     }
@@ -311,19 +312,19 @@ class DisputeActions
     public static function syncWithWoovi(): Action
     {
         return Action::make('syncWithWoovi')
-            ->label('Reler na Woovi')
+            ->label(fn (ViewRecord $livewire): string => 'Reler na '.$livewire->getRecord()->provider()->label())
             ->icon('heroicon-o-arrow-path')
             ->visible(fn (): bool => Permissions::allows(Permissions::REVIEW_DISPUTES))
             ->action(function (ViewRecord $livewire, SyncDisputeAction $sync): void {
                 try {
                     $sync->handle($livewire->getRecord());
                 } catch (Throwable $e) {
-                    Notification::make()->danger()->title('Woovi não respondeu')->body($e->getMessage())->send();
+                    Notification::make()->danger()->title($livewire->getRecord()->provider()->label().' não respondeu')->body($e->getMessage())->send();
 
                     return;
                 }
 
-                Notification::make()->success()->title('Caso atualizado com a Woovi')->send();
+                Notification::make()->success()->title('Caso atualizado com a '.$livewire->getRecord()->provider()->label())->send();
                 $livewire->getRecord()->refresh();
             });
     }
@@ -331,7 +332,7 @@ class DisputeActions
     private static function sendDescription(Dispute $dispute): string
     {
         $pending = $dispute->evidences()->whereNull('sent_at')->count();
-        $lines = ["{$pending} documento(s) ainda não enviados vão para a Woovi, mais a carta de defesa (relato do seller, fatos conferidos e parecer)."];
+        $lines = ["{$pending} documento(s) ainda não enviados vão para a {$dispute->provider()->label()}, mais a carta de defesa (relato do seller, fatos conferidos e parecer)."];
 
         $divergent = collect((array) data_get($dispute->dossier_match, 'checks', []))
             ->where('status', MatchDossierAction::DIVERGENT)
@@ -346,7 +347,11 @@ class DisputeActions
         }
 
         if ($dispute->hoursLeft() !== null && $dispute->hoursLeft() < 0) {
-            $lines[] = 'O prazo interno já venceu - a Woovi pode recusar o envio.';
+            $lines[] = "O prazo interno já venceu - a {$dispute->provider()->label()} pode recusar o envio.";
+        }
+
+        if ($dispute->provider() === Provider::TRANSFEERA) {
+            $lines[] = 'Na Transfeera a resposta é única: depois de enviada, não dá para editar o texto nem mandar mais anexos.';
         }
 
         $lines[] = 'Depois de enviado, o documento não pode ser retirado.';

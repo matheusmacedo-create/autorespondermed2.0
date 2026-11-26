@@ -15,7 +15,7 @@
 </head>
 <body>
     <h1>Registro da venda - Pix {{ $endToEndId }}</h1>
-    <p class="muted">Reunido em {{ $generatedAt->format('d/m/Y H:i') }} pela ÚnicoPag a partir dos registros da Woovi (instituição do recebedor){{ $sale ? ' e da plataforma ÚnicoPag' : '' }}. Dados pessoais parcialmente mascarados.</p>
+    <p class="muted">Reunido em {{ $generatedAt->format('d/m/Y H:i') }} pela ÚnicoPag a partir dos registros da {{ $institution ?? 'Woovi' }} (instituição do recebedor){{ $sale ? ' e da plataforma ÚnicoPag' : '' }}. Dados pessoais parcialmente mascarados.</p>
 
     <h2>Pagamento</h2>
     <table>
@@ -90,7 +90,7 @@
                 @endforeach
             </table>
         @else
-            <p>Nenhuma devolução registrada na Woovi para esta cobrança.</p>
+            <p>Nenhuma devolução registrada na {{ $institution ?? 'Woovi' }} para este pagamento.</p>
         @endif
     @endif
 </body>

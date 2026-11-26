@@ -43,10 +43,10 @@ return [
             // enquanto alguém escreve; IMMEDIATE pega a trava de escrita no início da
             // transação, então a espera do busy_timeout vale (DEFERRED que vira escrita falha
             // na hora).
-            'busy_timeout' => env('DB_BUSY_TIMEOUT', 10000),
-            'journal_mode' => env('DB_JOURNAL_MODE', 'wal'),
-            'synchronous' => env('DB_SYNCHRONOUS'),
-            'transaction_mode' => env('DB_TRANSACTION_MODE', 'IMMEDIATE'),
+            'busy_timeout' => env('DB_BUSY_TIMEOUT') ?: 10000,
+            'journal_mode' => env('DB_JOURNAL_MODE') ?: 'wal',
+            'synchronous' => env('DB_SYNCHRONOUS') ?: null,
+            'transaction_mode' => env('DB_TRANSACTION_MODE') ?: 'IMMEDIATE',
         ],
 
         'mysql' => [

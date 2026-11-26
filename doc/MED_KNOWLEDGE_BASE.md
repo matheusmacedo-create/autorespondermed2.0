@@ -469,8 +469,26 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 ## 12. Transfeera (26/11/2026) `[doc-transfeera]` `[código]`
 
 A ÚnicoPag passou a receber Pix também pela Transfeera, e os MEDs de lá são respondidos por este mesmo sistema.
-**Tudo nesta seção foi lido na doc pública (docs.transfeera.dev) e coberto com API falsa nos testes; nenhuma
-chamada real foi feita ainda** - conferir os itens de "Em aberto" na primeira infração de verdade.
+O contrato foi lido na doc pública (docs.transfeera.dev) e as **leituras foram conferidas em produção em
+26/11/2026** (abaixo). **A resposta (`POST .../analysis`) e o cadastro do webhook ainda não foram chamados de
+verdade.**
+
+**Conferido em produção (26/11/2026, conta principal da ÚnicoPag, só leitura)** `[produção]`:
+- Token sem `scope` na conta principal em `login-api.transfeera.com` (com `scope: account_id:<id da própria
+  conta>` o login responde 500 - o escopo é só para subconta). `api.transfeera.com` responde sem mTLS.
+- `GET /med/infractions`: 6 infrações desde 24/11 (5 `pending`/`pending`, 1 `canceled`/`canceled`), todas
+  `is_first_layer: true`, valores de R$ 129,90 a R$ 193,65. **`infraction_date__gte` só aceita `AAAA-MM-DD`**:
+  com data e hora, como a doc mostra, responde 400 ("does not match the 2006-01-02 format").
+- **Prazo: `analysis_due_date` = `infraction_date` + 96h exatas** nas 6 (o mesmo prazo medido na Woovi).
+- `analysis_status` também assume `canceled` (junto com `status: canceled`). A lista já traz `txid`,
+  `contested_at` e `refund.monitoring_end_date`; sem análise, `analysis_description` vem `""` e `user.name` null.
+- `GET /pix/cashin/{e2e}`: valor em reais, documento do pagador inteiro, `integration_id` preenchido pelo
+  unico-api e **`txid` = `integration_id` + sufixo** (ex.: `ybhgznw0ms` + `N2cnaw1Y9d000000`); `pix_description`
+  traz o nome da loja. `GET .../refund` e o comprovante (`receipt_file_url`, PDF público) respondem.
+- **A conta já tem dois webhooks do unico-api** (`api.unicopag.com.br`): um de `Transfer`/`TransferRefund` e um
+  de `CashIn`, `CashInRefund`, `ChargeReceivable`, `Infraction`, `Account`. O `GET /webhook` **não devolve o
+  `signature_secret`** (vem null): o segredo só aparece na resposta do `POST /webhook`. O MED cadastra um webhook
+  próprio, em outra URL; o do unico-api não é tocado.
 
 **Desenho.** A conta ganhou `provider` (`woovi` | `transfeera`, enum `Provider`). A tabela e as colunas `woovi_*`
 ficaram com o nome antigo de propósito; na Transfeera `app_id` guarda `client_id:client_secret`,
@@ -482,7 +500,7 @@ fluxo já lia da Woovi.
 | Uso | Endpoint | Observação |
 |---|---|---|
 | Token | `POST login-api.transfeera.com/authorization` `{grant_type: client_credentials, client_id, client_secret, scope?}` | vale 30 min (`expires_in`), em cache por conta; subconta = `scope: "account_id:<id>"` |
-| Listar | `GET /med/infractions?infraction_date__gte&page_size&page_cursor` | cursor em `meta.next`; filtra também por `analysis_status__in`, `transaction_id`, `payer_tax_id` |
+| Listar | `GET /med/infractions?infraction_date__gte=AAAA-MM-DD&page_size&page_cursor` | cursor em `meta.next`; filtra também por `analysis_status__in`, `transaction_id`, `payer_tax_id` |
 | Ler | `GET /med/infractions/{id}` | pelo id da infração (não pelo endToEndId) |
 | Responder | `POST /med/infractions/{id}/analysis` multipart: `analysis` (`rejected` = contesta, `accepted` = concorda), `analysis_description`, `attachments[]` | PDF, zip/rar, JPEG/PNG, até 15 MB; só com `analysis_status = pending`; **não dá para editar nem completar depois** |
 | Aceitar em lote | `POST /med/infractions/analysis` `{infraction_ids, analysis: accepted}` | só aceita; não usado |
@@ -507,8 +525,8 @@ fluxo já lia da Woovi.
   evento para tudo (nova, analisada, decidida). Assinatura no header `Transfeera-Signature: t=<ts>,v1=<hex>`,
   `v1 = HMAC-SHA256("<ts>.<corpo bruto>", signature_secret)`; o teste usa o vetor da doc. Sem 2xx a Transfeera
   tenta só mais 2 vezes - a sincronização de hora em hora cobre. O segredo só chega aqui pela ação "Cadastrar
-  webhooks" (ou `med:registrar-webhooks`); webhook criado à mão no painel da Transfeera é recusado (401) até a
-  ação rodar, porque ela lê o segredo no `GET /webhook`.
+  webhooks" (ou `med:registrar-webhooks`), na resposta do `POST /webhook`: a listagem não o devolve, então
+  webhook criado à mão no painel da Transfeera fica sem segredo aqui e é recusado (401).
 - **Resposta** (`SendEvidenceToWooviAction::sendToTransfeera`): relê a infração, e só envia se a análise ainda
   não foi registrada; manda `analysis=rejected`, o texto da defesa (cortado em `TRANSFEERA_DESCRICAO_MAX`, com a
   íntegra na carta) e os anexos, carta primeiro. WEBP e o que passar de 15 MB no total ficam fora, com aviso na
@@ -529,7 +547,7 @@ fluxo já lia da Woovi.
 1. Se o campo dos arquivos no multipart é `attachments` repetido (como está) ou `attachments[]`.
 2. Tamanho máximo de `analysis_description` e se os 15 MB são por arquivo ou do envio.
 3. Se `delayed` ainda aceita análise (hoje o `med:responder` não tenta; o botão da ficha tenta).
-4. Se a produção exige mTLS e qual host vale; liberar o IP de saída do servidor.
+4. Se o IP do servidor de produção do MED precisa ser liberado (deste ambiente as leituras passaram sem mTLS).
 5. Se um mesmo endToEndId pode ter mais de uma infração (o caso é por id da infração, então não se misturam).
 6. Se o unico-api acha a venda de um Pix da Transfeera pela rota `/api/med/sales/lookup` (por `txid`,
    `integration_id` ou endToEndId). Sem a venda não há lojista, produto nem conferência do pagador.

@@ -54,7 +54,8 @@ class SyncAccountDisputesAction
      */
     private function transfeera(WooviAccount $account, int $days): array
     {
-        $infractions = TransfeeraClient::for($account)->listInfractions(now()->subDays($days)->toIso8601String());
+        // O filtro só aceita a data (AAAA-MM-DD): com hora a Transfeera responde 400.
+        $infractions = TransfeeraClient::for($account)->listInfractions(now()->timezone('America/Sao_Paulo')->subDays($days)->toDateString());
         $created = 0;
 
         foreach ($infractions as $infraction) {

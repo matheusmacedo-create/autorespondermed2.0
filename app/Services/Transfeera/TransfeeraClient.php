@@ -43,7 +43,8 @@ class TransfeeraClient
     }
 
     /**
-     * GET /med/infractions - infrações criadas desde a data, todas as páginas
+     * GET /med/infractions - infrações criadas desde a data (`AAAA-MM-DD`, sem hora:
+     * a doc mostra data e hora, mas a API recusa), todas as páginas
      * (paginação por cursor em `meta.next`).
      *
      * @return array<int, array<string, mixed>>

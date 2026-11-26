@@ -5,6 +5,7 @@ namespace App\Actions\Med;
 use App\Models\WooviAccount;
 use App\Services\Transfeera\TransfeeraClient;
 use App\Services\Woovi\WooviClient;
+use RuntimeException;
 
 /**
  * Cadastra na conta Woovi um webhook por evento de disputa apontando para a URL
@@ -75,6 +76,13 @@ class RegisterWooviWebhooksAction
         } elseif (! in_array(self::TRANSFEERA_OBJECT, (array) ($existing['object_types'] ?? []), true)) {
             $client->updateWebhook((string) $existing['id'], $url, array_values(array_unique([...(array) ($existing['object_types'] ?? []), self::TRANSFEERA_OBJECT])));
             $created[] = self::TRANSFEERA_OBJECT;
+        }
+
+        // A listagem não devolve o segredo (conferido em produção): ele só vem na
+        // resposta do cadastro. Webhook que já existe na URL e segredo que não está
+        // aqui = não há como conferir a assinatura.
+        if (blank($existing['signature_secret'] ?? null) && blank($account->webhook_secret)) {
+            throw new RuntimeException('A Transfeera já tem um webhook nesta URL, mas o segredo dele não está guardado aqui (ela só o informa na criação). Apague esse webhook na Transfeera e rode de novo.');
         }
 
         $account->forceFill(array_filter([

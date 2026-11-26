@@ -202,6 +202,8 @@ class TransfeeraFlowTest extends TestCase
             && $request['grant_type'] === 'client_credentials'
             && filled($request['client_id']) && filled($request['client_secret'])
             && $request->header('User-Agent')[0] === 'Unico Pag (med@unicopag.test)');
+        // O filtro de data vai sem hora: com hora a API real responde 400.
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'infraction_date__gte='.now()->timezone('America/Sao_Paulo')->subDays(14)->toDateString().'&'));
         Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'page_cursor=cursor-2')
             && $request->hasHeader('Authorization', 'Bearer token-abc')
             && $request->header('User-Agent')[0] === 'Unico Pag (med@unicopag.test)');
@@ -358,7 +360,7 @@ class TransfeeraFlowTest extends TestCase
 
     public function test_registering_the_webhook_stores_the_signing_secret(): void
     {
-        $this->account->update(['webhook_secret' => null, 'webhooks_registered_at' => null]);
+        $this->account->forceFill(['webhook_secret' => null, 'webhooks_registered_at' => null])->save();
         Http::fake([
             'login.transfeera.test/authorization' => Http::response(['access_token' => 'token-abc', 'expires_in' => 1800]),
             'api.transfeera.test/webhook' => function (Request $request) {
@@ -377,6 +379,26 @@ class TransfeeraFlowTest extends TestCase
             && $request['url'] === $this->account->webhookUrl() && $request['object_types'] === ['Infraction']);
         // O segredo não fica em texto aberto no banco.
         $this->assertStringNotContainsString('segredo-novo', (string) $this->account->fresh()->getRawOriginal('webhook_secret'));
+    }
+
+    public function test_existing_webhook_without_a_known_secret_is_reported(): void
+    {
+        $this->account->forceFill(['webhook_secret' => null, 'webhooks_registered_at' => null])->save();
+        Http::fake([
+            'login.transfeera.test/authorization' => Http::response(['access_token' => 'token-abc', 'expires_in' => 1800]),
+            // Como em produção: a listagem traz o webhook sem o segredo.
+            'api.transfeera.test/webhook' => Http::response([['id' => 'wh-1', 'url' => $this->account->webhookUrl(), 'object_types' => ['Infraction'], 'signature_secret' => null]]),
+        ]);
+
+        try {
+            app(RegisterWooviWebhooksAction::class)->handle($this->account->fresh());
+            $this->fail('Deveria avisar.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('Apague esse webhook na Transfeera', $e->getMessage());
+        }
+
+        $this->assertNull($this->account->fresh()->webhooks_registered_at);
+        Http::assertNotSent(fn (Request $request): bool => $request->method() !== 'GET' && str_contains($request->url(), '/webhook'));
     }
 
     public function test_dossier_reads_the_received_pix_and_checks_the_payer_against_the_order(): void

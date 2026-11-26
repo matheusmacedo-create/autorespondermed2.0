@@ -218,6 +218,11 @@ botão de "agora não" seria lido como "pode mandar"):
   ele não existir ou estiver parado há mais de 5 min. Existe por causa do KYC 8.4: o cron nunca foi criado
   e as rotinas agendadas ficaram semanas sem rodar sem ninguém perceber.
 - A `APP_KEY` de produção não pode ser trocada: os AppIDs das contas Woovi são criptografados com ela.
+- Na prática a produção roda em SQLite (`storage/med.sqlite`), com web, worker e agendador escrevendo no mesmo
+  arquivo. Sem espera configurada, a reserva de job da fila caía em `database is locked` (25/11/2026, 2x por
+  dia). Desde 26/11 a conexão abre com WAL, `busy_timeout` de 10s e transação `IMMEDIATE`
+  (`DB_JOURNAL_MODE`, `DB_BUSY_TIMEOUT`, `DB_TRANSACTION_MODE`). Com WAL o banco tem os arquivos `-wal` e `-shm`
+  ao lado: backup por cópia precisa levar os três, ou usar `sqlite3 storage/med.sqlite ".backup destino"`.
 
 ## 8. Dossiê automático e envio automático `[código]` `[decisão]`
 
@@ -462,6 +467,7 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-11-26** - SQLite de produção com WAL, busy_timeout e transação IMMEDIATE (seção 7).
 - **2026-11-07** - rotas de leitura para o RiskOps do KYC (`GET /api/riskops/disputas` e `/{conta}`, X-API-Key
   `RISKOPS_API_KEY`): o MED continua em SQLite no servidor e o KYC lê por API, não pelo banco. A conta agrupada é
   a do lojista da venda (`merchant_account_id`), com a da subconta Woovi como reserva.

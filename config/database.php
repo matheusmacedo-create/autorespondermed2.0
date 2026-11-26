@@ -38,10 +38,15 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
-            'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
+            // Produção roda em SQLite com worker, agendador e web escrevendo juntos: sem
+            // espera, a reserva de job na fila caía em "database is locked". WAL deixa ler
+            // enquanto alguém escreve; IMMEDIATE pega a trava de escrita no início da
+            // transação, então a espera do busy_timeout vale (DEFERRED que vira escrita falha
+            // na hora).
+            'busy_timeout' => env('DB_BUSY_TIMEOUT') ?: 10000,
+            'journal_mode' => env('DB_JOURNAL_MODE') ?: 'wal',
+            'synchronous' => env('DB_SYNCHRONOUS') ?: null,
+            'transaction_mode' => env('DB_TRANSACTION_MODE') ?: 'IMMEDIATE',
         ],
 
         'mysql' => [

@@ -151,7 +151,7 @@ class AiDefenseTest extends TestCase
     public function test_letter_follows_the_compliance_format_with_the_requester_masked(): void
     {
         $dispute = $this->dispute();
-        $dispute->forceFill(['payer_name' => 'INAJARA Marinho Rodrigues Correa', 'defense_text' => 'Após análise, a compra foi legítima.'])->save();
+        $dispute->forceFill(['payer_name' => 'INAJARA Mirandolina Rodrigues Correa', 'defense_text' => 'Após análise, a compra foi legítima.'])->save();
         $data = null;
         View::composer('pdf.defense-letter', function ($view) use (&$data): void {
             $data ??= $view->getData();
@@ -162,7 +162,7 @@ class AiDefenseTest extends TestCase
 
         $this->assertStringContainsString('DEFESA – Mecanismo Especial de Devolução (MED)', $html);
         $this->assertStringContainsString('Inajara M. R. C.', $html);
-        $this->assertStringNotContainsString('Marinho', $html);
+        $this->assertStringNotContainsString('Mirandolina', $html);
         $this->assertStringContainsString('Após análise, a compra foi legítima.', $html);
         $this->assertStringContainsString('contato@unicopag.com', $html);
         $this->assertStringContainsString('seja indeferido', $html);

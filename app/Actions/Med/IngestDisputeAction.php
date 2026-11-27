@@ -4,6 +4,7 @@ namespace App\Actions\Med;
 
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
+use App\Enums\Provider;
 use App\Jobs\BuildDisputeDossier;
 use App\Models\Dispute;
 use App\Models\WooviAccount;
@@ -55,7 +56,7 @@ class IngestDisputeAction
             default => null,
         };
 
-        [$dispute, $created, $previousWooviStatus] = DB::transaction(function () use ($account, $payload, $endToEndId, $wooviStatus) {
+        [$dispute, $created, $previousWooviStatus, $answeredElsewhere] = DB::transaction(function () use ($account, $payload, $endToEndId, $wooviStatus) {
             $dispute = $this->find($account, $endToEndId, $this->string($payload['id'] ?? $payload['_id'] ?? null), $this->string($payload['type'] ?? null));
 
             $created = $dispute === null;
@@ -81,7 +82,10 @@ class IngestDisputeAction
 
             if ($created) {
                 $openedAt = $this->date($payload['createdAt'] ?? null) ?? now();
-                $respondBy = $openedAt->copy()->addHours((int) config('med.prazo_resposta_horas'));
+                // A Transfeera informa o prazo da análise em cada infração; a Woovi não
+                // informa prazo nenhum, e vale o prazo interno desde a abertura.
+                $respondBy = $this->date($payload['respondBy'] ?? null)
+                    ?? $openedAt->copy()->addHours((int) config('med.prazo_resposta_horas'));
 
                 $dispute->fill([
                     'type' => $dispute->type ?: 'MED',
@@ -102,27 +106,47 @@ class IngestDisputeAction
                 $dispute->token_expires_at = now();
             }
 
+            // Transfeera: a análise da empresa (`analysis_status`) é separada da decisão
+            // final. Se alguém já respondeu fora daqui (painel da Transfeera), a análise
+            // não pode ser editada e o caso sai da fila de quem ainda vai responder. Sem
+            // `evidence_sent_at`: o placar só conta o que este sistema respondeu.
+            $answeredElsewhere = in_array(strtolower((string) ($payload['analysisStatus'] ?? '')), ['accepted', 'rejected'], true)
+                && in_array($dispute->status, [DisputeStatus::PENDING_SELLER, DisputeStatus::SELLER_SUBMITTED], true);
+
+            if ($answeredElsewhere) {
+                $dispute->status = DisputeStatus::EVIDENCE_SENT;
+                $dispute->token_expires_at = now();
+            }
+
             $dispute->save();
 
-            return [$dispute, $created, $previousWooviStatus];
+            return [$dispute, $created, $previousWooviStatus, $answeredElsewhere];
         });
 
         $dispute->loadMissing('wooviAccount');
         $context = ['source' => $source, 'event' => $event, 'woovi_status' => $wooviStatus];
+        $provider = $account->provider ?? Provider::WOOVI;
 
         if ($created) {
             $this->events->record(
                 DisputeEventType::RECEIVED,
                 $dispute,
-                sprintf('%s de %s recebido da Woovi (%s).', $dispute->type, $dispute->formattedValue(), $source),
+                sprintf('%s de %s recebido da %s (%s).', $dispute->type, $dispute->formattedValue(), $provider->label(), $source),
                 $context,
-                source: 'woovi',
+                source: $provider->value,
             );
+
+            if ($answeredElsewhere) {
+                $this->recordAnsweredElsewhere($dispute, $payload, $context);
+
+                // Já respondido: não cobra defesa nem monta dossiê.
+                return $dispute;
+            }
 
             if ($dispute->status->isClosed()) {
                 // Caso que já nasce decidido (sincronização de histórico): registra,
                 // mas não cobra defesa de quem não tem mais o que defender.
-                $this->events->record(DisputeEventType::CLOSED, $dispute, "Caso já chegou encerrado: {$dispute->status->label()}.", $context, source: 'woovi');
+                $this->events->record(DisputeEventType::CLOSED, $dispute, "Caso já chegou encerrado: {$dispute->status->label()}.", $context, source: $provider->value);
 
                 return $dispute;
             }
@@ -144,23 +168,47 @@ class IngestDisputeAction
             return $dispute;
         }
 
+        if ($answeredElsewhere) {
+            $this->recordAnsweredElsewhere($dispute, $payload, $context);
+        }
+
         if ($wooviStatus !== null && $wooviStatus !== $previousWooviStatus) {
             $this->events->record(
                 DisputeEventType::WOOVI_STATUS_CHANGED,
                 $dispute,
-                sprintf('Status na Woovi: %s -> %s.', $previousWooviStatus ?? '—', $wooviStatus),
+                sprintf('Status na %s: %s -> %s.', $provider->label(), $previousWooviStatus ?? '—', $wooviStatus),
                 $context,
-                source: 'woovi',
+                source: $provider->value,
             );
 
             if ($dispute->status->isClosed() && DisputeStatus::fromWooviStatus($previousWooviStatus) === null) {
-                $this->events->record(DisputeEventType::CLOSED, $dispute, "Caso encerrado: {$dispute->status->label()}.", $context, source: 'woovi');
+                $this->events->record(DisputeEventType::CLOSED, $dispute, "Caso encerrado: {$dispute->status->label()}.", $context, source: $provider->value);
                 $this->discord->disputeClosed($dispute);
                 $this->sellerNotifier->disputeClosed($dispute);
             }
         }
 
         return $dispute;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $context
+     */
+    private function recordAnsweredElsewhere(Dispute $dispute, array $payload, array $context): void
+    {
+        $analysis = strtolower((string) ($payload['analysisStatus'] ?? ''));
+
+        $this->events->record(
+            DisputeEventType::WOOVI_STATUS_CHANGED,
+            $dispute,
+            $analysis === 'rejected'
+                ? 'A infração já foi contestada na Transfeera fora deste sistema: não aceita outra resposta.'
+                : 'A infração já foi aceita na Transfeera fora deste sistema: não aceita outra resposta.',
+            $context + ['analysis_status' => $analysis],
+            level: 'warning',
+            source: 'transfeera',
+        );
     }
 
     /**
@@ -223,6 +271,8 @@ class IngestDisputeAction
             return null;
         }
 
-        return rescue(fn () => Carbon::parse($value), null, report: false);
+        // Para o fuso da aplicação: a Transfeera manda as datas em -03:00, e o banco
+        // guardaria a hora local como se fosse UTC (prazo 3 horas adiantado).
+        return rescue(fn () => Carbon::parse($value)->setTimezone(config('app.timezone')), null, report: false);
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\DisputeEventType;
+use App\Enums\Provider;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessWooviWebhookCall;
 use App\Models\WooviAccount;
@@ -29,7 +30,7 @@ class WooviWebhookController extends Controller
         WebhookSignatureVerifier $verifier,
         DisputeEventRecorder $events,
     ): JsonResponse {
-        $account = WooviAccount::query()->where('webhook_key', $webhookKey)->first();
+        $account = WooviAccount::query()->where('webhook_key', $webhookKey)->where('provider', Provider::WOOVI->value)->first();
 
         if (! $account) {
             return response()->json(['error' => 'Not found'], 404);

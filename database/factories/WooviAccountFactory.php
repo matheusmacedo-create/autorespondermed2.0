@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Provider;
 use App\Enums\WooviAccountSource;
 use App\Models\WooviAccount;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -25,5 +26,14 @@ class WooviAccountFactory extends Factory
             'contact_phone' => '+5521999990000',
             'is_active' => true,
         ];
+    }
+
+    public function transfeera(): static
+    {
+        return $this->state(fn () => [
+            'provider' => Provider::TRANSFEERA,
+            'app_id' => 'client-id-'.Str::random(8).':secret-'.Str::random(16),
+            'webhook_secret' => 'segredo-do-webhook',
+        ]);
     }
 }

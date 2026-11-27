@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\KapsoWebhookController;
 use App\Http\Controllers\Api\RiskOpsDisputesController;
+use App\Http\Controllers\Api\TransfeeraWebhookController;
 use App\Http\Controllers\Api\WooviAccountApiController;
 use App\Http\Controllers\Api\WooviWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -12,6 +13,12 @@ use Illuminate\Support\Facades\Route;
 Route::post('webhooks/woovi/{webhookKey}', WooviWebhookController::class)
     ->middleware('throttle:600,1')
     ->name('webhooks.woovi');
+
+// Webhook da Transfeera (objeto `Infraction`), também um por conta. Autentica pelo
+// HMAC do corpo (Transfeera-Signature) com o segredo do webhook daquela conta.
+Route::post('webhooks/transfeera/{webhookKey}', TransfeeraWebhookController::class)
+    ->middleware('throttle:600,1')
+    ->name('webhooks.transfeera');
 
 // Webhook da Kapso (WhatsApp oficial): entrega das mensagens e respostas do seller,
 // que liberam o link da defesa. Autentica pelo HMAC do corpo (X-Webhook-Signature).

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Actions\Med\GenerateAiDefenseAction;
 use App\Enums\DisputeEventType;
+use App\Enums\DisputeStatus;
 use App\Models\Dispute;
 use App\Models\DisputeEvent;
 use Illuminate\Console\Command;
@@ -35,10 +36,12 @@ class DisputeResultsCommand extends Command
             ->groupBy('dispute_id')
             ->map(fn ($events) => data_get($events->first()->context, 'ai_recommendation'));
 
-        $outcome = fn (Dispute $d): string => match ($d->woovi_status) {
-            'REJECTED' => 'ganho',
-            'ACCEPTED' => 'perdido',
-            'CANCELED' => 'cancelado',
+        // Cada instituição tem o seu vocabulário (Woovi REJECTED/ACCEPTED, Transfeera
+        // DISAGREED/AGREED): o DisputeStatus traduz.
+        $outcome = fn (Dispute $d): string => match (DisputeStatus::fromWooviStatus($d->woovi_status)) {
+            DisputeStatus::REJECTED => 'ganho',
+            DisputeStatus::ACCEPTED => 'perdido',
+            DisputeStatus::CANCELED => 'cancelado',
             default => 'aguardando',
         };
 
@@ -65,15 +68,15 @@ class DisputeResultsCommand extends Command
 
         $unanswered = Dispute::query()
             ->whereNull('evidence_sent_at')
-            ->whereIn('woovi_status', ['REJECTED', 'ACCEPTED'])
+            ->whereIn('woovi_status', ['REJECTED', 'ACCEPTED', 'DISAGREED', 'AGREED'])
             ->where('opened_at', '>=', now()->subDays((int) $this->option('dias')))
             ->get();
 
         $this->line(sprintf(
             'Para comparar, sem resposta nossa: %d decididos - %d ganhos, %d perdidos.',
             $unanswered->count(),
-            $unanswered->where('woovi_status', 'REJECTED')->count(),
-            $unanswered->where('woovi_status', 'ACCEPTED')->count(),
+            $unanswered->whereIn('woovi_status', ['REJECTED', 'DISAGREED'])->count(),
+            $unanswered->whereIn('woovi_status', ['ACCEPTED', 'AGREED'])->count(),
         ));
 
         return self::SUCCESS;

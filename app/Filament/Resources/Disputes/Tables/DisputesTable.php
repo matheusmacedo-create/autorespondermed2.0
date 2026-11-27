@@ -108,13 +108,14 @@ class DisputesTable
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('wooviAccount.name')
-                    ->label('Conta Woovi')
+                    ->label('Conta')
+                    ->description(fn (Dispute $record): string => $record->provider()->label())
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('status')->label('Status')->options(DisputeStatus::options()),
                 SelectFilter::make('type')->label('Tipo')->options(['MED' => 'MED', 'CHARGEBACK' => 'Chargeback', 'DISPUTE' => 'Disputa']),
-                SelectFilter::make('woovi_account_id')->label('Conta Woovi')->relationship('wooviAccount', 'name')->searchable()->preload(),
+                SelectFilter::make('woovi_account_id')->label('Conta')->relationship('wooviAccount', 'name')->searchable()->preload(),
             ])
             ->defaultSort('respond_by', 'asc')
             ->recordActions([

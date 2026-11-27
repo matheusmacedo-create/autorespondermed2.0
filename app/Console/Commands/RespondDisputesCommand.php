@@ -8,6 +8,7 @@ use App\Actions\Med\SendEvidenceToWooviAction;
 use App\Actions\Med\SyncDisputeAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
+use App\Enums\Provider;
 use App\Jobs\GenerateAiDefense;
 use App\Models\Dispute;
 use App\Models\User;
@@ -121,7 +122,7 @@ class RespondDisputesCommand extends Command
                 $dispute = $sync->handle($dispute)->fresh();
 
                 if (($blockers = self::blockers($dispute, $includeOverdue)) !== []) {
-                    $this->warn("#{$dispute->id}: não enviado, mudou na Woovi ({$dispute->woovi_status}): ".implode('; ', $blockers));
+                    $this->warn("#{$dispute->id}: não enviado, mudou na {$dispute->provider()->label()} ({$dispute->woovi_status}): ".implode('; ', $blockers));
 
                     continue;
                 }
@@ -171,7 +172,7 @@ class RespondDisputesCommand extends Command
         }
 
         if ($dispute->dossier_match === null || $status('transaction_found') !== MatchDossierAction::OK) {
-            $blockers[] = 'transação não conferida na Woovi';
+            $blockers[] = 'transação não conferida na '.$dispute->provider()->label();
         }
 
         // Só a divergência é incoerência; o dado que falta (sem venda, Pix sem cobrança)
@@ -207,7 +208,17 @@ class RespondDisputesCommand extends Command
             $blockers[] = 'prazo interno vencido';
         }
 
-        if ($dispute->opened_at?->copy()->addHours((int) config('med.prazo_woovi_horas'))->isPast()) {
+        if ($dispute->provider() === Provider::TRANSFEERA) {
+            // A Transfeera informa o prazo de cada infração (`analysis_due_date`, que
+            // aqui é o `respond_by`) e só aceita análise enquanto ela está pendente.
+            if ($dispute->respond_by?->isPast()) {
+                $blockers[] = 'prazo da Transfeera expirado';
+            }
+
+            if (! in_array(strtolower((string) data_get($dispute->raw, 'analysisStatus', 'pending')), ['pending', ''], true)) {
+                $blockers[] = 'análise na Transfeera não está mais pendente ('.data_get($dispute->raw, 'analysisStatus').')';
+            }
+        } elseif ($dispute->opened_at?->copy()->addHours((int) config('med.prazo_woovi_horas'))->isPast()) {
             $blockers[] = 'prazo da Woovi expirado';
         }
 

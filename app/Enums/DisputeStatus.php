@@ -28,7 +28,7 @@ enum DisputeStatus: string
         return match ($this) {
             self::PENDING_SELLER => 'Aberto',
             self::SELLER_SUBMITTED => 'Lojista respondeu',
-            self::EVIDENCE_SENT => 'Enviado à Woovi',
+            self::EVIDENCE_SENT => 'Resposta enviada',
             self::ACCEPTED => 'Devolução aceita',
             self::REJECTED => 'Contestação rejeitada',
             self::CANCELED => 'Cancelado',
@@ -109,8 +109,10 @@ enum DisputeStatus: string
     public static function fromWooviStatus(?string $wooviStatus): ?self
     {
         return match (strtoupper((string) $wooviStatus)) {
-            'ACCEPTED' => self::ACCEPTED,
-            'REJECTED' => self::REJECTED,
+            // Transfeera: `agreed` = infração procedente (o lojista perdeu); `disagreed`
+            // = improcedente (o lojista ficou com o valor).
+            'ACCEPTED', 'AGREED' => self::ACCEPTED,
+            'REJECTED', 'DISAGREED' => self::REJECTED,
             'CANCELED', 'CANCELLED' => self::CANCELED,
             default => null,
         };

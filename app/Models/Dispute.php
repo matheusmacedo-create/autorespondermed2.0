@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DisputeStatus;
 use App\Enums\DossierSource;
+use App\Enums\Provider;
 use App\Enums\SourceStatus;
 use Database\Factories\DisputeFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -179,6 +180,14 @@ class Dispute extends Model
         }
 
         return $this->merchantStore;
+    }
+
+    /**
+     * Instituição onde o caso é respondido (a da conta).
+     */
+    public function provider(): Provider
+    {
+        return $this->wooviAccount?->provider ?? Provider::WOOVI;
     }
 
     public function wooviAccount(): BelongsTo

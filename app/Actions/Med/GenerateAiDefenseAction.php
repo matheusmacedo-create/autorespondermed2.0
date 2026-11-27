@@ -191,6 +191,13 @@ class GenerateAiDefenseAction
      */
     private function claim(Dispute $dispute): ?string
     {
+        // Transfeera: o relato de quem contestou já vem na própria infração.
+        $reported = data_get($dispute->sourcePayload(DossierSource::WOOVI_FUNDS_RECOVERY), 'reportDetails');
+
+        if (is_string($reported) && trim($reported) !== '') {
+            return mb_substr(trim($reported), 0, 4000);
+        }
+
         $fundsRecoveryId = data_get($dispute->sourcePayload(DossierSource::WOOVI_FUNDS_RECOVERY), 'fundsRecoveryId');
 
         if (! is_string($fundsRecoveryId) || $fundsRecoveryId === '' || ! $dispute->wooviAccount) {

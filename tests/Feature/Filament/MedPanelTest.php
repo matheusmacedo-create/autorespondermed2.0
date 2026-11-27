@@ -4,6 +4,7 @@ namespace Tests\Feature\Filament;
 
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
+use App\Enums\Provider;
 use App\Filament\Resources\Disputes\Pages\ListDisputes;
 use App\Filament\Resources\Disputes\Pages\ViewDispute;
 use App\Filament\Resources\WooviAccounts\Pages\CreateWooviAccount;
@@ -151,6 +152,32 @@ class MedPanelTest extends TestCase
         $account = WooviAccount::sole();
         $this->assertSame('app-id-secreto', $account->app_id);
         $this->assertSame('12345678909', $account->tax_id);
+    }
+
+    public function test_create_transfeera_account_from_the_panel(): void
+    {
+        Livewire::test(CreateWooviAccount::class)
+            ->fillForm(['provider' => 'transfeera', 'name' => 'Unico Pag Transfeera', 'tax_id' => '52.254.162/0001-50', 'app_id' => 'so-o-client-id'])
+            ->call('create')
+            ->assertHasFormErrors(['app_id'])
+            ->fillForm(['app_id' => 'meu-client-id:meu-client-secret'])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $account = WooviAccount::sole();
+        $this->assertSame(Provider::TRANSFEERA, $account->provider);
+        $this->assertSame('meu-client-id:meu-client-secret', $account->app_id);
+        $this->assertStringContainsString('/api/webhooks/transfeera/', $account->webhookUrl());
+
+        // A instituição não muda depois de criada; a credencial em branco fica como está.
+        Livewire::test(EditWooviAccount::class, ['record' => $account->getRouteKey()])
+            ->assertFormFieldIsDisabled('provider')
+            ->fillForm(['name' => 'Transfeera principal'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $this->assertSame(Provider::TRANSFEERA, $account->fresh()->provider);
+        $this->assertSame('meu-client-id:meu-client-secret', $account->fresh()->app_id);
     }
 
     public function test_editing_without_app_id_keeps_the_current_key(): void

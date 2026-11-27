@@ -87,6 +87,34 @@ return [
         ],
     ],
 
+    // Transfeera: segunda instituição onde a ÚnicoPag recebe Pix. A credencial de cada
+    // conta (client_id:client_secret) fica criptografada em woovi_accounts, com
+    // provider = transfeera - aqui só o que é comum a todas.
+    'transfeera' => [
+        // Com mTLS em produção os domínios mudam: https://api.mtls.transfeera.com e
+        // https://login-api.mtls.transfeera.com. Sandbox: api-sandbox / login-api-sandbox.
+        'base_url' => env('TRANSFEERA_BASE_URL', 'https://api.transfeera.com'),
+        'login_url' => env('TRANSFEERA_LOGIN_URL', 'https://login-api.transfeera.com'),
+        'timeout' => (int) env('TRANSFEERA_TIMEOUT', 20),
+        // Obrigatório em toda chamada: nome da empresa e um e-mail de contato.
+        'user_agent' => env('TRANSFEERA_USER_AGENT', 'Unico Pag ('.env('MAIL_FROM_ADDRESS', 'contato@unicopag.com').')'),
+        // Certificado e chave do mTLS (caminhos no servidor). Vazio = sem mTLS.
+        'mtls' => [
+            'cert' => env('TRANSFEERA_MTLS_CERT'),
+            'key' => env('TRANSFEERA_MTLS_KEY'),
+        ],
+        // A doc não informa o tamanho máximo do texto da análise: a defesa é cortada
+        // aqui e segue inteira na carta anexa.
+        'description_max' => (int) env('TRANSFEERA_DESCRICAO_MAX', 4000),
+        // Limite dos anexos da análise (15 MB na doc).
+        'attachments_max_bytes' => (int) env('TRANSFEERA_ANEXOS_MAX_BYTES', 15 * 1024 * 1024),
+        'webhook' => [
+            // Transfeera-Signature (HMAC-SHA256 com o segredo do webhook da conta).
+            // Desligar só em ambiente local.
+            'verify_signature' => (bool) env('TRANSFEERA_WEBHOOK_VERIFY_SIGNATURE', true),
+        ],
+    ],
+
     // Segredo compartilhado com o unico-api (header X-API-Key) para as rotas
     // server-to-server: o unico-api cadastra/atualiza as contas Woovi dos sellers
     // e consulta os MEDs de uma conta. Sem valor = rotas negam (fail-closed).

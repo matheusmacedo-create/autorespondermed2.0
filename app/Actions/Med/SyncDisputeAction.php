@@ -5,6 +5,7 @@ namespace App\Actions\Med;
 use App\Enums\DisputeEventType;
 use App\Models\Dispute;
 use App\Services\DisputeEventRecorder;
+use App\Services\Transfeera\TransfeeraClient;
 use App\Services\Woovi\WooviClient;
 use App\Services\Woovi\WooviException;
 
@@ -20,12 +21,18 @@ class SyncDisputeAction
 {
     public function __construct(
         private readonly IngestDisputeAction $ingest,
+        private readonly IngestTransfeeraInfractionAction $ingestTransfeera,
         private readonly DisputeEventRecorder $events,
     ) {}
 
     public function handle(Dispute $dispute): Dispute
     {
         $dispute->loadMissing('wooviAccount');
+
+        if ($dispute->wooviAccount->isTransfeera()) {
+            return $this->transfeera($dispute);
+        }
+
         $client = WooviClient::for($dispute->wooviAccount);
 
         try {
@@ -49,6 +56,34 @@ class SyncDisputeAction
         // Releitura sem novidade não vira evento (seria um por hora na linha do tempo):
         // o que mudou a ingestão já registra (status na Woovi, encerramento).
         $this->ingest->handle($dispute->wooviAccount, $payload, 'sync');
+
+        return $dispute->fresh() ?? $dispute;
+    }
+
+    /**
+     * Transfeera: GET /med/infractions/{id}, pelo id da infração (aqui ele identifica
+     * o caso sem ambiguidade - não há a troca de disputa do GET da Woovi).
+     */
+    private function transfeera(Dispute $dispute): Dispute
+    {
+        if (blank($dispute->woovi_dispute_id)) {
+            return $dispute;
+        }
+
+        try {
+            $infraction = TransfeeraClient::for($dispute->wooviAccount)->getInfraction($dispute->woovi_dispute_id);
+        } catch (WooviException $e) {
+            $this->events->record(DisputeEventType::SYNC_FAILED, $dispute, $e->getMessage(), ['status' => $e->status], level: 'error');
+
+            throw $e;
+        }
+
+        if (($infraction['id'] ?? null) !== $dispute->woovi_dispute_id) {
+            return $dispute;
+        }
+
+        $infraction['transaction_id'] ??= $dispute->end_to_end_id;
+        $this->ingestTransfeera->handle($dispute->wooviAccount, $infraction, 'sync');
 
         return $dispute->fresh() ?? $dispute;
     }

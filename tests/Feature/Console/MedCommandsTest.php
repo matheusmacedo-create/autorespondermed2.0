@@ -96,12 +96,12 @@ class MedCommandsTest extends TestCase
         Dispute::factory()->create(['opened_at' => now()->subDays(5)]);
 
         $this->artisan('med:placar')
-            ->expectsOutputToContain('Respondidos à Woovi desde')
+            ->expectsOutputToContain('Respondidos desde')
             ->expectsOutputToContain('aguardando decisão        2 · R$ 300,00')
             ->expectsOutputToContain('ganhos                    1 · R$ 150,00')
             ->expectsOutputToContain('perdidos                  1 · R$ 150,00')
             ->expectsOutputToContain('taxa de ganho: 50% dos decididos')
-            ->expectsOutputToContain('no prazo da Woovi         1 · R$ 150,00')
+            ->expectsOutputToContain('ainda no prazo            1 · R$ 150,00')
             ->expectsOutputToContain('prazo vencido             1 · R$ 150,00')
             ->expectsOutputToContain('Decisões nas respondidas, últimas 24h: 1')
             ->expectsOutputToContain('Mega Store - Contestação rejeitada')

@@ -11,9 +11,9 @@ use Illuminate\Support\Collection;
 /**
  * O placar dos MEDs, numa definição só para o painel e o `med:placar`.
  *
- * Respondido é o que saiu para a Woovi (desde o primeiro envio, fora da janela também:
- * caso enviado nunca é podado). Ganho = REJECTED (o lojista manteve o valor), perdido =
- * ACCEPTED (devolvido ao pagador). O que ficou sem resposta nossa conta à parte, só os
+ * Respondido é o que saiu para a instituição da conta - Woovi ou Transfeera - (desde o
+ * primeiro envio, fora da janela também: caso enviado nunca é podado). Ganho = REJECTED
+ * (o lojista manteve o valor), perdido = ACCEPTED (devolvido ao pagador). O que ficou sem resposta nossa conta à parte, só os
  * MEDs da janela, para comparar.
  */
 final class MedScoreboard
@@ -29,12 +29,27 @@ final class MedScoreboard
 
     public static function make(): self
     {
-        $columns = ['id', 'type', 'status', 'value', 'opened_at', 'evidence_sent_at'];
+        // A conta e o `respond_by` entram por causa da instituição: o prazo da
+        // Transfeera é o de cada infração, e o placar separa as respostas por ela.
+        $columns = ['id', 'woovi_account_id', 'type', 'status', 'value', 'opened_at', 'respond_by', 'evidence_sent_at'];
 
         return new self(
-            Dispute::query()->whereNotNull('evidence_sent_at')->get($columns),
-            Dispute::query()->inWindow()->whereNull('evidence_sent_at')->where('type', 'MED')->get($columns),
+            Dispute::query()->with('wooviAccount:id,provider')->whereNotNull('evidence_sent_at')->get($columns),
+            Dispute::query()->with('wooviAccount:id,provider')->inWindow()->whereNull('evidence_sent_at')->where('type', 'MED')->get($columns),
         );
+    }
+
+    /**
+     * Quantos casos por instituição ("Woovi 252 · Transfeera 6"). Vazio quando todos
+     * são de uma só: aí o total já diz tudo.
+     */
+    public static function byProvider(Collection $disputes): string
+    {
+        $counts = $disputes->countBy(fn (Dispute $dispute): string => $dispute->provider()->label());
+
+        return $counts->count() > 1
+            ? $counts->sortKeys()->map(fn (int $count, string $label): string => "{$label} {$count}")->reverse()->implode(' · ')
+            : '';
     }
 
     /**
@@ -70,7 +85,7 @@ final class MedScoreboard
     }
 
     /**
-     * Sem resposta nossa e ainda sem decisão: `true` = o prazo da Woovi ainda corre.
+     * Sem resposta nossa e ainda sem decisão: `true` = o prazo da instituição ainda corre.
      *
      * @return Collection<int, Dispute>
      */

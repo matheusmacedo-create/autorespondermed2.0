@@ -62,9 +62,15 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   converte a infração e o Pix recebido para os campos que o fluxo lê da Woovi).
 - `agreed` = lojista **perdeu**; `disagreed` = **ganhou**. A resposta é `POST /med/infractions/{id}/analysis`
   com `analysis=rejected`, uma vez só (não edita nem completa) - por isso o envio relê a infração antes e depois
-  de um erro. O prazo é o `analysis_due_date` de cada infração (`respond_by`), não as 96h da Woovi.
+  de um erro - e com **um arquivo só**: mais de um anexo vai num `defesa-e-evidencias.zip` (`AttachmentBundler`;
+  se o zip não puder ser montado, não envia nada - nunca só uma parte). Para conferir se o anexo chegou, o `GET`
+  da infração traz `files` (nome e link assinado). O prazo é o `analysis_due_date` de cada
+  infração (`respond_by`), não as 96h da Woovi.
 - Webhook em `/api/webhooks/transfeera/{webhook_key}`, assinado por HMAC (`Transfeera-Signature`); o segredo só
-  entra pela ação "Cadastrar webhooks". Contrato lido na doc, ainda sem chamada real: KB seção 12.
+  entra pela ação "Cadastrar webhooks" - ainda não rodada em produção (a conta já tem um webhook do unico-api
+  para `Infraction`; a sincronização de hora em hora cobre). Leituras e resposta conferidas em produção: KB seção 12.
+- O unico-api ainda não acha a venda de Pix da Transfeera (`/api/med/sales/lookup`): esses casos saem sem lojista,
+  produto nem política da loja.
 
 ## WhatsApp (Kapso)
 - Mesmo número oficial e mesma chave do KYC, webhook e segredo próprios (`/api/webhooks/kapso`). A Kapso manda

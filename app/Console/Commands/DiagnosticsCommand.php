@@ -243,6 +243,13 @@ class DiagnosticsCommand extends Command
                 $withoutSecret === 0 ? 'ok' : 'warn',
                 "{$transfeera}, {$withoutSecret} sem o segredo do webhook (med:registrar-webhooks) · ".config('services.transfeera.base_url').' · User-Agent "'.config('services.transfeera.user_agent').'"',
             );
+            // A Transfeera aceita um arquivo só por resposta: sem a extensão zip, caso com
+            // mais de um anexo não sai.
+            $this->check(
+                'Extensão zip do PHP (anexos da Transfeera)',
+                class_exists(\ZipArchive::class) ? 'ok' : 'fail',
+                class_exists(\ZipArchive::class) ? 'instalada' : 'AUSENTE: a resposta com mais de um anexo não é enviada (instale php-zip)',
+            );
         }
     }
 

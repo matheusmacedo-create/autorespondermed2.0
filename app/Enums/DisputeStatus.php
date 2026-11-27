@@ -13,6 +13,10 @@ namespace App\Enums;
  * complemento. A decisão final vem da Woovi (webhook ou sincronização):
  * `accepted` = a devolução foi aceita (o dinheiro volta ao pagador, o seller
  * perdeu); `rejected` = a contestação foi recusada (o seller fica com o valor).
+ *
+ * `evidence_sent` também recebe a infração da Transfeera respondida fora daqui (no
+ * painel dela): o caso não espera mais resposta, mas fica sem `evidence_sent_at`,
+ * que é o que marca o envio feito por este sistema.
  */
 enum DisputeStatus: string
 {
@@ -61,6 +65,16 @@ enum DisputeStatus: string
     public function acceptsSellerSubmission(): bool
     {
         return $this === self::PENDING_SELLER;
+    }
+
+    /**
+     * Status em que o caso ainda espera a resposta à instituição: a defesa não saiu,
+     * nem daqui nem de fora. São os status que o `med:responder` responde e os únicos
+     * que o placar cobra como prazo ("ainda no prazo" ou "prazo vencido").
+     */
+    public function awaitsResponse(): bool
+    {
+        return in_array($this, [self::PENDING_SELLER, self::SELLER_SUBMITTED], true);
     }
 
     /**

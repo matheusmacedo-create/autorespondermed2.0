@@ -103,6 +103,8 @@ class MedCommandsTest extends TestCase
             ->expectsOutputToContain('taxa de ganho: 50% dos decididos')
             ->expectsOutputToContain('ainda no prazo            1 · R$ 150,00')
             ->expectsOutputToContain('prazo vencido             1 · R$ 150,00')
+            // Linha que só existe quando algum caso foi respondido fora daqui.
+            ->doesntExpectOutputToContain('respondidos fora daqui')
             ->expectsOutputToContain('Decisões nas respondidas, últimas 24h: 1')
             ->expectsOutputToContain('Mega Store - Contestação rejeitada')
             ->assertSuccessful();

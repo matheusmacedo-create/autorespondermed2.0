@@ -11,8 +11,8 @@ use Illuminate\Support\Collection;
 
 /**
  * O placar do painel em texto (`MedScoreboard`): o que foi respondido e como a instituição (Woovi ou Transfeera)
- * decidiu, o que ficou sem resposta e as decisões recentes. É o que o acompanhamento
- * diário lê.
+ * decidiu, o que ficou sem resposta nossa (esperando resposta, respondido fora daqui ou já
+ * decidido) e as decisões recentes. É o que o acompanhamento diário lê.
  */
 class ScoreboardCommand extends Command
 {
@@ -55,6 +55,14 @@ class ScoreboardCommand extends Command
         $this->line('Sem resposta nossa'.($start ? ' (MEDs e chargebacks abertos desde '.$start->timezone($tz)->format('d/m').')' : '').':');
         $line('ainda no prazo', $board->unansweredOpen(withinDeadline: true));
         $line('prazo vencido', $board->unansweredOpen(withinDeadline: false));
+
+        // Respondido no painel da instituição: não é prazo correndo nem perdido, mas o
+        // valor segue em disputa até a decisão. Linha só quando há algum: hoje só a
+        // Transfeera informa a análise feita fora daqui.
+        if (($elsewhere = $board->answeredElsewhere())->isNotEmpty()) {
+            $line('respondidos fora daqui', $elsewhere);
+        }
+
         $line('decididos: ganhos', $board->won($board->unanswered));
         $line('decididos: perdidos', $board->lost($board->unanswered));
 

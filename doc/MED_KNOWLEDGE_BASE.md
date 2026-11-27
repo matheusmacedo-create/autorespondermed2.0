@@ -1,7 +1,8 @@
 # MED - Base de Conhecimento
 
 > **Documento vivo.** Registra como o responder de MED **é** e o que se sabe do contrato da Woovi.
-> Última atualização: 2026-11-27 (placar com chargeback sem resposta; Transfeera em produção, seção 12).
+> Última atualização: 2026-11-27 (placar: chargeback sem resposta e infração respondida fora daqui; Transfeera em
+> produção, seção 12).
 
 Mesma regra do KYC: comportamento e decisão vêm para cá; o que falta fazer vai para o card. Cada fato diz
 como foi apurado - `[doc-woovi]` documentação pública da Woovi, `[openapi]` spec do repo
@@ -532,7 +533,14 @@ fluxo já lia da Woovi.
   íntegra na carta) e os anexos, carta primeiro. WEBP e o que passar de 15 MB no total ficam fora, com aviso na
   linha do tempo. Se o envio der erro, relê: análise registrada = enviado (resposta que se perdeu no caminho).
 - **Respondida fora daqui**: infração com `analysis_status` `accepted`/`rejected` e caso ainda aberto vai para
-  "Resposta enviada" sem `evidence_sent_at` (fora do placar), sem aviso ao lojista nem dossiê.
+  "Resposta enviada" sem `evidence_sent_at`, sem aviso ao lojista nem dossiê. **No placar** ela não é resposta deste
+  sistema nem prazo. Não entra em "Respondidos", "aguardando decisão", ganhos, perdidos e taxa de ganho, que são só
+  do que saiu daqui (`evidence_sent_at`); nem em "ainda no prazo" e "prazo vencido", que listam só o que ainda
+  espera resposta - "Aberto" ou "Lojista respondeu" (`DisputeStatus::awaitsResponse()`), os status que o
+  `med:responder` responde. Enquanto a Transfeera não decide, o `med:placar` mostra a linha **"respondidos fora
+  daqui"** em "Sem resposta nossa" (`MedScoreboard::answeredElsewhere()`; só aparece quando há alguma, e o widget do
+  painel não a tem - lá o caso fica na aba "Enviados"). Decidida, passa para "decididos: ganhos/perdidos" de "Sem
+  resposta nossa" e para o subtítulo do widget: foi decidida sem defesa deste sistema.
 - **Dossiê**: alegação = a própria infração relida (`situation_type`, `infraction_description` - o relato de quem
   contestou, que vai para a IA -, `is_first_layer` e o CPF/CNPJ inteiro do pagador); transação = o Pix recebido,
   com a hora tirada do endToEndId (`E` + ISPB + `AAAAMMDDHHmm` em UTC), porque o cash-in não tem data; o
@@ -586,6 +594,14 @@ pelo `med:responder` (primeiro a de prazo mais próximo, conferida, depois as ou
 
 ## Histórico de atualizações
 
+- **2026-11-27** - placar: a infração respondida fora daqui (seção 12) deixou de contar como prazo. O "sem resposta
+  nossa" tirava só os encerrados, e o caso em "Resposta enviada" sem `evidence_sent_at` aparecia em "ainda no prazo"
+  e, passado o `respond_by`, em "prazo vencido" até a Transfeera decidir - um prazo perdido que não foi perdido
+  (reproduzido em banco local em 27/11: aberto há 6 dias, `respond_by` há 2). As duas linhas passam a listar só o
+  que ainda espera resposta (`DisputeStatus::awaitsResponse()`). O respondido fora ganhou linha própria no
+  `med:placar` ("respondidos fora daqui", só quando há algum) em vez de sumir: o valor segue em disputa até a
+  decisão. Decidido, continua em "decididos: ganhos/perdidos" e no subtítulo do widget. Prazo, ganho e perdido não
+  mudam.
 - **2026-11-27** - placar: o "sem resposta nossa" (`med:placar` e widget) cobra os mesmos tipos que o `med:responder`
   responde - MED e chargeback, lista única em `Dispute::DEFENDED_TYPES`. Desde 06/11 o chargeback era defendido, mas o
   placar só contava MED sem resposta: em 27/11 o #508 (chargeback de R$ 193,91 aberto em 17/11, prazo da Woovi

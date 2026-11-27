@@ -37,7 +37,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   decisões da Woovi com a recomendação da IA no envio (guardada no evento) e por loja. `med:placar` é o placar em
   texto (respondidos, aguardando, ganhos e perdidos em R$, o que ficou sem resposta) - a mesma conta
   (`App\Support\MedScoreboard`) do widget "Resultado das respostas" do painel. O "sem resposta" cobra os tipos que o
-  `med:responder` responde: a lista é uma só (`Dispute::DEFENDED_TYPES`, MED e chargeback) - tipo novo entra lá.
+  `med:responder` responde: a lista é uma só (`Dispute::DEFENDED_TYPES`, MED e chargeback) - tipo novo entra lá. Prazo
+  ("ainda no prazo", "prazo vencido") é só do que ainda espera resposta (`DisputeStatus::awaitsResponse()`).
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 
@@ -67,6 +68,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   se o zip não puder ser montado, não envia nada - nunca só uma parte). Para conferir se o anexo chegou, o `GET`
   da infração traz `files` (nome e link assinado). O prazo é o `analysis_due_date` de cada
   infração (`respond_by`), não as 96h da Woovi.
+- Infração já respondida no painel da Transfeera chega em "Resposta enviada" **sem** `evidence_sent_at` - é ele que
+  separa o que este sistema respondeu, não preencha. No placar ela não é respondida nem prazo: sai na linha
+  "respondidos fora daqui" do `med:placar` até a decisão e, decidida, nos decididos sem resposta nossa (KB seção 12).
 - Webhook em `/api/webhooks/transfeera/{webhook_key}`, assinado por HMAC (`Transfeera-Signature`); o segredo só
   entra pela ação "Cadastrar webhooks" - ainda não rodada em produção (a conta já tem um webhook do unico-api
   para `Infraction`; a sincronização de hora em hora cobre). Leituras e resposta conferidas em produção: KB seção 12.

@@ -109,7 +109,8 @@ class IngestDisputeAction
             // Transfeera: a análise da empresa (`analysis_status`) é separada da decisão
             // final. Se alguém já respondeu fora daqui (painel da Transfeera), a análise
             // não pode ser editada e o caso sai da fila de quem ainda vai responder. Sem
-            // `evidence_sent_at`: o placar só conta o que este sistema respondeu.
+            // `evidence_sent_at`: o placar só conta o que este sistema respondeu, e é por
+            // esse par que ele mostra o caso à parte (`MedScoreboard::answeredElsewhere()`).
             $answeredElsewhere = in_array(strtolower((string) ($payload['analysisStatus'] ?? '')), ['accepted', 'rejected'], true)
                 && in_array($dispute->status, [DisputeStatus::PENDING_SELLER, DisputeStatus::SELLER_SUBMITTED], true);
 

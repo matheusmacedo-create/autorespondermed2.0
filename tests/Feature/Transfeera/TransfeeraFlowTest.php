@@ -19,6 +19,7 @@ use App\Models\WooviAccount;
 use App\Models\WooviWebhookCall;
 use App\Services\Transfeera\AttachmentBundler;
 use App\Services\Woovi\WooviException;
+use App\Support\MedScoreboard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -200,7 +201,7 @@ class TransfeeraFlowTest extends TestCase
         $dispute = Dispute::sole();
 
         $this->assertSame(DisputeStatus::EVIDENCE_SENT, $dispute->status);
-        // Não foi este sistema que respondeu: fica fora do placar.
+        // Não foi este sistema que respondeu: não entra nos respondidos do placar.
         $this->assertNull($dispute->evidence_sent_at);
         $this->assertNull($dispute->seller_notified_at);
         Http::assertNothingSent();
@@ -602,6 +603,84 @@ class TransfeeraFlowTest extends TestCase
             ->expectsOutputToContain('por instituição: Woovi 2 · Transfeera 1')
             ->expectsOutputToContain('ainda no prazo            1 · R$ 250,00')
             ->expectsOutputToContain('prazo vencido             1 · R$ 150,00')
+            ->assertSuccessful();
+    }
+
+    public function test_scoreboard_charges_no_deadline_for_infractions_answered_in_the_transfeera_panel(): void
+    {
+        // Respondidas no painel da Transfeera: uma contestada, aberta há 6 dias e com o
+        // prazo vencido há 2 (o caso reproduzido em 27/11), e uma aceita, ainda no prazo.
+        $this->postWebhook($this->infraction([
+            'id' => 'contestada-fora',
+            'transaction_id' => 'E18236120202611211845s0133872GZB',
+            'amount' => 12990,
+            'analysis_status' => 'rejected',
+            'infraction_date' => now()->subDays(6)->toIso8601String(),
+            'analysis_due_date' => now()->subDays(2)->toIso8601String(),
+        ]))->assertOk();
+        $this->postWebhook($this->infraction([
+            'id' => 'aceita-fora',
+            'transaction_id' => 'E18236120202611251845s0133872GZC',
+            'amount' => 19365,
+            'analysis_status' => 'accepted',
+        ]))->assertOk();
+
+        // Sem resposta de ninguém: uma com o prazo correndo e uma de prazo perdido de verdade.
+        $open = $this->openCase(['woovi_dispute_id' => 'no-prazo', 'status' => DisputeStatus::PENDING_SELLER, 'respond_by' => now()->addDay()]);
+        $late = $this->openCase(['woovi_dispute_id' => 'vencida', 'value' => 9900, 'opened_at' => now()->subDays(6), 'respond_by' => now()->subDays(2)]);
+
+        $board = MedScoreboard::make();
+        $elsewhere = Dispute::query()->whereIn('woovi_dispute_id', ['contestada-fora', 'aceita-fora'])->orderBy('id')->pluck('id')->all();
+
+        $this->assertCount(2, $elsewhere);
+        $this->assertSame(
+            ['ainda no prazo' => [$open->id], 'prazo vencido' => [$late->id], 'respondidos fora daqui' => $elsewhere],
+            [
+                'ainda no prazo' => $board->unansweredOpen(withinDeadline: true)->pluck('id')->all(),
+                'prazo vencido' => $board->unansweredOpen(withinDeadline: false)->pluck('id')->all(),
+                'respondidos fora daqui' => $board->answeredElsewhere()->pluck('id')->sort()->values()->all(),
+            ],
+        );
+
+        $this->artisan('med:placar')
+            // Quem respondeu não foi este sistema: os respondidos seguem zerados.
+            ->expectsOutputToContain('Respondidos: 0 · R$ 0,00')
+            ->expectsOutputToContain('aguardando decisão        0 · R$ 0,00')
+            ->expectsOutputToContain('ainda no prazo            1 · R$ 250,00')
+            ->expectsOutputToContain('prazo vencido             1 · R$ 99,00')
+            ->expectsOutputToContain('respondidos fora daqui    2 · R$ 323,55')
+            ->assertSuccessful();
+    }
+
+    public function test_infraction_answered_elsewhere_counts_as_decided_without_our_answer(): void
+    {
+        $accepted = ['id' => 'aceita-fora', 'transaction_id' => 'E18236120202611251845s0133872GZC', 'amount' => 9900, 'analysis_status' => 'accepted'];
+
+        // Uma contestada e uma aceita no painel da Transfeera...
+        $this->postWebhook($this->infraction(['analysis_status' => 'rejected']))->assertOk();
+        $this->postWebhook($this->infraction($accepted))->assertOk();
+        // ...e a decisão de cada uma: a contestada improcedente (o lojista ganhou), a
+        // aceita procedente (perdeu).
+        $this->postWebhook($this->infraction(['analysis_status' => 'rejected', 'status' => 'disagreed']))->assertOk();
+        $this->postWebhook($this->infraction($accepted + ['status' => 'agreed']))->assertOk();
+
+        $this->assertSame(
+            [self::INFRACTION_ID => DisputeStatus::REJECTED, 'aceita-fora' => DisputeStatus::ACCEPTED],
+            Dispute::query()->orderBy('id')->get()->mapWithKeys(fn (Dispute $dispute): array => [$dispute->woovi_dispute_id => $dispute->status])->all(),
+        );
+        // A decisão não vira resposta deste sistema.
+        $this->assertSame(0, Dispute::query()->whereNotNull('evidence_sent_at')->count());
+        $this->assertCount(0, MedScoreboard::make()->answeredElsewhere());
+
+        $this->artisan('med:placar')
+            // Ganho e perdido do placar são só do que este sistema respondeu.
+            ->expectsOutputToContain('Respondidos: 0 · R$ 0,00')
+            ->expectsOutputToContain('ganhos                    0 · R$ 0,00')
+            ->expectsOutputToContain('perdidos                  0 · R$ 0,00')
+            // Decididas sem defesa nossa: entram na comparação.
+            ->expectsOutputToContain('decididos: ganhos         1 · R$ 250,00')
+            ->expectsOutputToContain('decididos: perdidos       1 · R$ 99,00')
+            ->doesntExpectOutputToContain('respondidos fora daqui')
             ->assertSuccessful();
     }
 

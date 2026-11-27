@@ -156,6 +156,20 @@ class RespondDisputesCommandTest extends TestCase
         $this->assertContains('falhou 3 vezes nas últimas 24h - ver a ficha', RespondDisputesCommand::blockers($failing, true));
     }
 
+    public function test_answers_exactly_the_statuses_the_scoreboard_charges_a_deadline_for(): void
+    {
+        // O placar só cobra prazo ("ainda no prazo", "prazo vencido") de quem ainda espera
+        // resposta (`awaitsResponse()`), e o lote responde esses mesmos status: lista que
+        // mudar de um lado só faz o placar cobrar o que ninguém responde, ou o contrário.
+        foreach (DisputeStatus::cases() as $status) {
+            $this->assertSame(
+                $status->awaitsResponse() ? [] : ['status '.$status->label()],
+                RespondDisputesCommand::blockers($this->ready(['status' => $status])),
+                $status->value,
+            );
+        }
+    }
+
     public function test_waits_for_the_store_policy_capture_running_now(): void
     {
         $dispute = $this->ready(['merchant_account_id' => '4321']);

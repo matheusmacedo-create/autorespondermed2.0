@@ -7,6 +7,7 @@ use App\Actions\Med\MatchDossierAction;
 use App\Enums\DisputeEventType;
 use App\Enums\DisputeStatus;
 use App\Enums\DossierSource;
+use App\Enums\Provider;
 use App\Enums\SourceStatus;
 use App\Filament\Resources\MerchantStores\MerchantStoreResource;
 use App\Models\Dispute;
@@ -157,7 +158,7 @@ class DisputeInfolist
                             ]),
 
                         Section::make('Dossiê automático')
-                            ->description('O que o sistema puxou sozinho da Woovi, da plataforma e do KYC.')
+                            ->description(fn (Dispute $record): string => "O que o sistema puxou sozinho da {$record->provider()->label()}, da plataforma e do KYC.")
                             ->collapsed()
                             ->visible(fn (Dispute $record): bool => $record->dossier_built_at !== null)
                             ->schema([
@@ -166,7 +167,7 @@ class DisputeInfolist
                                     ->state(fn (Dispute $record) => $record->sources()->orderBy('id')->get())
                                     ->columns(3)
                                     ->schema([
-                                        TextEntry::make('source')->hiddenLabel()->formatStateUsing(fn (DossierSource $state): string => $state->label()),
+                                        TextEntry::make('source')->hiddenLabel()->formatStateUsing(fn (DossierSource $state, $record): string => $state->labelFor($record->dispute?->provider() ?? Provider::WOOVI)),
                                         TextEntry::make('status')->hiddenLabel()->badge()
                                             ->formatStateUsing(fn (SourceStatus $state): string => $state->label())
                                             ->color(fn (SourceStatus $state): string => $state->color()),

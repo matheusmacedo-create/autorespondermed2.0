@@ -8,7 +8,7 @@ use ZipArchive;
 /**
  * A Transfeera aceita um arquivo só por análise ("Only one file can be uploaded", visto
  * em produção em 27/11/2026), e a análise não pode ser completada depois. Com mais de um
- * anexo, vão todos num .zip, a carta de defesa primeiro.
+ * anexo, vão todos num .zip, na ordem recebida (quem envia põe a carta de defesa primeiro).
  *
  * Se o zip não puder ser montado (servidor sem a extensão zip do PHP, disco cheio),
  * nada é enviado: mandar só uma parte deixaria o resto de fora para sempre. O erro sobe
@@ -62,7 +62,13 @@ class AttachmentBundler
             }
 
             // Confere o que ficou gravado antes de mandar: a resposta não tem segunda chance.
-            if ($this->countEntries($path) !== count($attachments)) {
+            $entries = $this->countEntries($path);
+
+            if ($entries === null) {
+                throw new RuntimeException('Não foi possível conferir o zip dos anexos depois de gravado.');
+            }
+
+            if ($entries !== count($attachments)) {
                 throw new RuntimeException('O zip dos anexos saiu incompleto.');
             }
 
@@ -83,12 +89,13 @@ class AttachmentBundler
         return class_exists(ZipArchive::class);
     }
 
-    private function countEntries(string $path): int
+    /** Quantos arquivos o zip gravado tem; null quando ele não abre para a conferência. */
+    private function countEntries(string $path): ?int
     {
         $zip = new ZipArchive;
 
         if ($zip->open($path, ZipArchive::RDONLY) !== true) {
-            return -1;
+            return null;
         }
 
         $count = $zip->numFiles;

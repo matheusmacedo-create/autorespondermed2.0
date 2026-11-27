@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Tests\TestCase;
+use ZipArchive;
 
 /**
  * MED na Transfeera, de ponta a ponta com a API falsa: webhook e sincronização criam
@@ -282,13 +283,27 @@ class TransfeeraFlowTest extends TestCase
             $field = fn (string $name) => $parts->firstWhere('name', $name)['contents'] ?? null;
             $files = $parts->where('name', 'attachments')->values();
 
+            // A Transfeera aceita um arquivo só: carta e nota vão juntas num zip.
+            if ($files->count() !== 1 || $files[0]['filename'] !== 'defesa-e-evidencias.zip') {
+                return false;
+            }
+
+            $path = tempnam(sys_get_temp_dir(), 'zip-test-');
+            file_put_contents($path, $files[0]['contents']);
+            $zip = new ZipArchive;
+            $zip->open($path);
+            $names = [$zip->getNameIndex(0), $zip->getNameIndex(1)];
+            $count = $zip->numFiles;
+            $zip->close();
+            unlink($path);
+
             return $request->isMultipart()
                 && $request->method() === 'POST'
                 && $field('analysis') === 'rejected'
                 && $field('analysis_description') === 'A venda é legítima e o pedido está dentro do prazo de entrega.'
-                && $files->count() === 2
-                && str_starts_with($files[0]['filename'], 'carta-de-defesa-')
-                && $files[1]['filename'] === 'nota.pdf';
+                && $count === 2
+                && str_starts_with($names[0], '01-carta-de-defesa-')
+                && $names[1] === '02-nota.pdf';
         });
 
         $dispute->refresh();
@@ -297,6 +312,22 @@ class TransfeeraFlowTest extends TestCase
         $this->assertSame(1, $dispute->evidences()->whereNull('sent_at')->count());
         $this->assertNotNull($dispute->evidences()->where('kind', EvidenceKind::DEFENSE_LETTER->value)->sole()->sent_at);
         $this->assertDatabaseHas('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::EVIDENCE_SENT->value]);
+    }
+
+    public function test_single_evidence_goes_as_it_is_without_zip(): void
+    {
+        // Sem relato, parecer nem texto de defesa não há carta: vai só a nota.
+        $dispute = $this->openCase(['defense_text' => null, 'seller_statement' => null]);
+        DisputeEvidence::factory()->for($dispute)->create();
+        $this->fakeApi(['api.transfeera.test/med/infractions/*/analysis' => Http::response($this->infraction(['analysis_status' => 'rejected']))]);
+
+        $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($dispute, userId: null));
+
+        Http::assertSent(function (Request $request): bool {
+            $files = collect($request->data())->where('name', 'attachments')->values();
+
+            return str_ends_with($request->url(), '/analysis') && $files->count() === 1 && $files[0]['filename'] === 'nota.pdf';
+        });
     }
 
     public function test_infraction_already_analyzed_is_never_answered_again(): void

@@ -16,6 +16,7 @@ use App\Support\DisputeLock;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\URL;
 use RuntimeException;
+use ZipArchive;
 
 /**
  * Responde o MED na instituição da conta. Na Transfeera é uma chamada só, com texto
@@ -187,8 +188,8 @@ class SendEvidenceToWooviAction
 
     /**
      * Anexos que a Transfeera aceita: PDF, imagem JPEG/PNG e compactado (zip/rar), até
-     * 15 MB. A doc não diz se o limite é por arquivo ou do envio - vale o do envio. A
-     * carta de defesa vai primeiro, e o que não couber fica fora (e registrado).
+     * 15 MB, e um arquivo só por análise ({@see singleAttachment()}). A carta de defesa
+     * vai primeiro, e o que não couber fica fora (e registrado).
      *
      * @param  Collection<int, DisputeEvidence>  $pending
      * @return array{0: array<int, array{contents: string, name: string, mime: string}>, 1: Collection<int, DisputeEvidence>, 2: array<int, string>}
@@ -217,7 +218,47 @@ class SendEvidenceToWooviAction
             $included->push($evidence);
         }
 
-        return [$attachments, $included, $skipped];
+        return [$this->singleAttachment($attachments, $included), $included, $skipped];
+    }
+
+    /**
+     * A Transfeera aceita um arquivo só por análise ("Only one file can be uploaded",
+     * visto em produção em 27/11/2026). Com mais de um, vão todos num .zip - a carta de
+     * defesa primeiro no nome, para abrir em cima. Sem a extensão zip no servidor, vai
+     * só a carta (ou o primeiro arquivo), e o resto fica como não enviado.
+     *
+     * @param  array<int, array{contents: string, name: string, mime: string}>  $attachments
+     * @param  Collection<int, DisputeEvidence>  $included  reduzida ao que de fato vai
+     * @return array<int, array{contents: string, name: string, mime: string}>
+     */
+    private function singleAttachment(array $attachments, Collection $included): array
+    {
+        if (count($attachments) <= 1) {
+            return $attachments;
+        }
+
+        if (! class_exists(ZipArchive::class)) {
+            foreach ($included->slice(1)->keys() as $key) {
+                $included->forget($key);
+            }
+
+            return [$attachments[0]];
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'med-zip-');
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+        foreach ($attachments as $index => $file) {
+            // Prefixo numérico: mantém a ordem e evita dois arquivos com o mesmo nome.
+            $zip->addFromString(sprintf('%02d-%s', $index + 1, basename($file['name'])), $file['contents']);
+        }
+
+        $zip->close();
+        $contents = (string) file_get_contents($path);
+        @unlink($path);
+
+        return [['contents' => $contents, 'name' => 'defesa-e-evidencias.zip', 'mime' => 'application/zip']];
     }
 
     /**

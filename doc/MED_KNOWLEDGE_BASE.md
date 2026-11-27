@@ -502,7 +502,7 @@ fluxo já lia da Woovi.
 | Token | `POST login-api.transfeera.com/authorization` `{grant_type: client_credentials, client_id, client_secret, scope?}` | vale 30 min (`expires_in`), em cache por conta; subconta = `scope: "account_id:<id>"` |
 | Listar | `GET /med/infractions?infraction_date__gte=AAAA-MM-DD&page_size&page_cursor` | cursor em `meta.next`; filtra também por `analysis_status__in`, `transaction_id`, `payer_tax_id` |
 | Ler | `GET /med/infractions/{id}` | pelo id da infração (não pelo endToEndId) |
-| Responder | `POST /med/infractions/{id}/analysis` multipart: `analysis` (`rejected` = contesta, `accepted` = concorda), `analysis_description`, `attachments[]` | PDF, zip/rar, JPEG/PNG, até 15 MB; só com `analysis_status = pending`; **não dá para editar nem completar depois** |
+| Responder | `POST /med/infractions/{id}/analysis` multipart: `analysis` (`rejected` = contesta, `accepted` = concorda), `analysis_description`, `attachments[]` | **um arquivo só** (PDF, zip/rar, JPEG/PNG, até 15 MB); só com `analysis_status = pending`; **não dá para editar nem completar depois** |
 | Aceitar em lote | `POST /med/infractions/analysis` `{infraction_ids, analysis: accepted}` | só aceita; não usado |
 | Pix recebido | `GET /pix/cashin/{end2endId}` | `value` em **reais**, `txid`, `integration_id`, pagador, `receipt_file_url`; **sem data** |
 | Devoluções | `GET /pix/cashin/{end2endId}/refund` | `entries[]`, valor negativo, `return_id` |
@@ -543,8 +543,19 @@ fluxo já lia da Woovi.
 - **LGPD**: o CPF do pagador não entra em `disputes.raw` (sem criptografia); fica na fonte da alegação, que é
   criptografada.
 
+**Primeira rodada em produção (27/11/2026, 12:20)** `[produção]`: site do Forge passou a publicar a `main`
+(antes seguia `claude/trusting-hypatia-98phi7`), conta cadastrada (id 4) e 7 infrações importadas. A resposta
+automática tentou as 6 pendentes e a Transfeera recusou todas com **400 "Only one file can be uploaded"**: a
+análise aceita **um arquivo só**. Desde então, com mais de um anexo, vão todos num `defesa-e-evidencias.zip` (carta
+primeiro); com um só, vai ele mesmo. Nada foi registrado na Transfeera nessa rodada (os casos ficaram abertos, com a
+falha na linha do tempo). **O unico-api não achou a venda de nenhum dos 6 Pix** em `/api/med/sales/lookup`, nem
+pelo `integration_id`, nem pelo `txid`, nem pelo endToEndId: a rota só conhece as vendas da Woovi. Sem ela o caso
+fica sem lojista, produto, política da loja e conferência do pagador - pedir ao unico-api a busca das vendas da
+Transfeera (o `integration_id` do Pix é dele).
+
 **Em aberto (conferir com chamada real ou com o suporte da Transfeera):**
-1. Se o campo dos arquivos no multipart é `attachments` repetido (como está) ou `attachments[]`.
+1. Se o campo do arquivo no multipart é mesmo `attachments` (a recusa de 27/11 foi pela quantidade, o que indica
+   que o nome foi reconhecido) - confirmar no primeiro envio aceito.
 2. Tamanho máximo de `analysis_description` e se os 15 MB são por arquivo ou do envio.
 3. Se `delayed` ainda aceita análise (hoje o `med:responder` não tenta; o botão da ficha tenta).
 4. Se o IP do servidor de produção do MED precisa ser liberado (deste ambiente as leituras passaram sem mTLS).

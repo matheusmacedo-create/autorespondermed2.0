@@ -16,6 +16,7 @@ use App\Enums\Provider;
 use App\Models\Dispute;
 use App\Models\DisputeEvidence;
 use App\Models\WooviAccount;
+use App\Models\WooviWebhookCall;
 use App\Services\Woovi\WooviException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -134,6 +135,11 @@ class TransfeeraFlowTest extends TestCase
         $this->assertTrue($due->equalTo($dispute->respond_by));
         // O CPF de quem pagou não fica no caso em texto aberto.
         $this->assertStringNotContainsString(self::PAYER_CPF, json_encode($dispute->raw));
+        // Nem na chamada do webhook guardada crua (o resto do corpo fica para reprocessar).
+        $call = WooviWebhookCall::sole();
+        $this->assertStringNotContainsString(self::PAYER_CPF, $call->payload);
+        $this->assertSame(self::INFRACTION_ID, $call->decodedPayload()['data']['id']);
+        $this->assertNotEmpty($call->decodedPayload()['data']['payer_tax_id']);
         $this->assertDatabaseHas('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::RECEIVED->value, 'source' => 'transfeera']);
     }
 

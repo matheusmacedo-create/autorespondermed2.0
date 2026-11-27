@@ -147,8 +147,8 @@ class Dispute extends Model
 
     /**
      * Quando o Pix foi pago: a hora da transação na Woovi, ou a data da venda. Na
-     * Transfeera vale a liquidação da cobrança (`paidAt`): a hora da transação sai do
-     * endToEndId e é só aproximada.
+     * Transfeera vale a liquidação da cobrança (`paidAt`), com os segundos: a hora da
+     * transação sai do endToEndId e só tem o minuto.
      */
     public function paidAt(): ?Carbon
     {

@@ -587,13 +587,16 @@ caminho, conferido nos 7 casos reais (7 de 7 acharam loja, produto e cliente):
 - **`payer` do QR Code é o devedor informado na criação (o cliente do pedido), não quem pagou**: nos 7 casos ele é
   igual ao cliente da venda, e em 2 deles (#556 e #558) quem pagou o Pix é outra pessoa. Não é a armadilha do
   `transaction.customer` da Woovi.
-- **A hora que sai do endToEndId é só aproximada**: no #560 e no #562 ela fica 12 a 15 minutos antes da própria
-  criação da cobrança. Com a cobrança localizada, a hora do pagamento é o `settled_at` (`Dispute::paidAt()`, o
-  registro da venda e o item "cobrança criada antes do pagamento"); sem ela, esse item fica sem dado em vez de
-  acusar divergência falsa.
-- QR Code cujo `pix_received.end2end_id` é de outro Pix não é usado. Sem a cobrança (Pix sem txid, QR não
-  localizado), a venda ainda é tentada pelo `integration_id` e a conferência do pagador cai para o cliente do
-  pedido.
+- **A hora que sai do endToEndId só tem o minuto**: nos 7 casos ela bate com a liquidação (`settled_at`), no mesmo
+  minuto ou um antes (é a hora da ordem no banco de quem pagou). Serve para datar o pagamento, mas não para comparar
+  com a criação da cobrança: no #557 a cobrança foi criada às 12:43:17 e liquidada às 12:43:58, e pelo endToEndId
+  (12:43:00) pareceria "criada depois do pagamento". Com a cobrança localizada, a hora do pagamento é o `settled_at`
+  (`Dispute::paidAt()`, o registro da venda e o item "cobrança criada antes do pagamento"); sem ela, esse item fica
+  sem dado em vez de acusar divergência falsa.
+- Só vale a cobrança que o próprio Pix liquidou: `pix_received.end2end_id` igual ao endToEndId do caso (veio assim
+  nos 7). QR Code sem pagamento registrado, estático ou pago por outro Pix não é usado - a criação, a liquidação e
+  o devedor dele não provam nada sobre o caso. Sem a cobrança (Pix sem txid, QR não localizado), a venda ainda é
+  tentada pelo `integration_id` e a conferência do pagador cai para o cliente do pedido.
 - As seis respostas de 27/11 saíram antes disso, sem lojista nem produto, e não podem ser completadas.
 
 Como isso foi descoberto: leitura pontual do banco da plataforma (`unicopag-prod`, usuário pessoal só com `SELECT`,
@@ -607,8 +610,10 @@ aqui só o que ajuda a entender a plataforma:
   nas da Woovi, só o link e o QR Code.
 - `transaction_med_pixs`: o registro de MED da própria plataforma (`infraction_id` = id da infração na Transfeera,
   ou o endToEndId na Woovi; `transaction_id`; `status` `without_documentation`, `med_aproved`, `med_reproved`...).
-  Tinha 5 das 7 infrações da Transfeera, e no #560 apontava para outra venda da mesma loja (mesmo txid e
-  endToEndId no `payment_data`, cobrança criada 15 minutos depois) - não é fonte segura para ligar o caso à venda.
+  Tinha 5 das 7 infrações da Transfeera, e em 2 delas (#560 e #562) apontava para **outra venda da mesma loja**,
+  criada 12 a 15 minutos depois do Pix, com o txid e o endToEndId do caso gravados no `payment_data` dela e o
+  `qrcode_id` de outra cobrança. Não é fonte segura para ligar o caso à venda: a cobrança que a Transfeera devolve
+  pelo txid é a que bate com a hora do Pix.
 - O usuário não tinha acesso à tabela de clientes; o cliente da venda vem pela rota do unico-api.
 
 **Em aberto (conferir com chamada real ou com o suporte da Transfeera):**

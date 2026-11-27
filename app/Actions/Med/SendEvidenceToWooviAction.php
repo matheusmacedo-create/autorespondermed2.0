@@ -33,6 +33,9 @@ class SendEvidenceToWooviAction
     /** Depois de a Woovi recusar o fileId, quantos dias até tentar de novo. */
     private const FILE_ID_RETRY_DAYS = 7;
 
+    /** Folga do limite de anexos da Transfeera quando eles vão juntos num zip. */
+    private const ZIP_MARGIN_BYTES = 64 * 1024;
+
     public function __construct(
         private readonly GenerateDefenseLetterAction $generateDefenseLetter,
         private readonly MatchDossierAction $match,
@@ -207,14 +210,13 @@ class SendEvidenceToWooviAction
      */
     private function transfeeraAttachments(Collection $pending): array
     {
-        // O limite vale para o arquivo enviado. Com mais de um anexo ele é um zip, que
-        // acrescenta cabeçalhos (PDF e imagem já são compactados e não encolhem): a
-        // folga evita montar um zip um pouco acima do limite.
-        $budget = max(0, (int) config('services.transfeera.attachments_max_bytes', 15 * 1024 * 1024) - 64 * 1024);
+        $limit = (int) config('services.transfeera.attachments_max_bytes', 15 * 1024 * 1024);
         $allowed = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-rar-compressed', 'application/vnd.rar'];
         $attachments = [];
+        $sizes = [];
         $included = new Collection;
         $skipped = [];
+        $budget = $limit;
 
         $ordered = $pending->sortBy(fn (DisputeEvidence $evidence): int => $evidence->kind === EvidenceKind::DEFENSE_LETTER ? 0 : 1)->values();
 
@@ -228,8 +230,19 @@ class SendEvidenceToWooviAction
             }
 
             $budget -= $size;
+            $sizes[] = $size;
             $attachments[] = ['contents' => $evidence->contents(), 'name' => (string) $evidence->original_name, 'mime' => (string) $evidence->mime_type];
             $included->push($evidence);
+        }
+
+        // Mais de um anexo vira um zip, que acrescenta cabeçalhos (PDF e imagem já são
+        // compactados e não encolhem): aí o conjunto precisa de uma folga para o zip não
+        // passar do limite. Sai do fim, porque a carta vai primeiro. Um arquivo só vai
+        // como está e usa o limite inteiro.
+        while (count($attachments) > 1 && array_sum($sizes) > $limit - self::ZIP_MARGIN_BYTES) {
+            array_pop($attachments);
+            array_pop($sizes);
+            $skipped[] = (string) $included->pop()->original_name;
         }
 
         return [$attachments, $included, $skipped];

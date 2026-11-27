@@ -73,9 +73,9 @@ class InfractionMapper
      * conferência e o registro da venda leem.
      *
      * - `value` vem em reais (50.54) e vira centavos.
-     * - O cash-in não tem data: a hora do Pix sai do próprio endToEndId. É aproximada
-     *   (em produção ficou até 15 minutos antes da liquidação); quando a cobrança é
-     *   localizada, vale o `paidAt` dela ({@see toChargeSource()}).
+     * - O cash-in não tem data: a hora do Pix sai do próprio endToEndId, só com o minuto
+     *   (bate com a liquidação, no mesmo minuto ou um antes). Quando a cobrança é
+     *   localizada, vale o `paidAt` dela, com os segundos ({@see toChargeSource()}).
      * - O documento do pagador pode vir mascarado ("***.274.581-**"); nesse caso vale
      *   o da infração, que vem inteiro.
      *
@@ -116,9 +116,12 @@ class InfractionMapper
      * - `customer` é o devedor informado quando a cobrança foi criada (o cliente do
      *   pedido), não quem pagou - conferido em produção: nos casos em que outra pessoa
      *   pagou, ele continua igual ao cliente da venda.
-     * - `paidAt` é a liquidação (`settled_at`), a hora real do pagamento. A hora que
-     *   sai do endToEndId pode ficar minutos antes dela.
-     * - Vazio quando o QR Code foi pago por outro Pix (estático, ou txid reaproveitado).
+     * - `paidAt` é a liquidação (`settled_at`), com os segundos. É ela que se compara
+     *   com a criação da cobrança: a hora que sai do endToEndId só tem o minuto, e uma
+     *   cobrança criada e paga no mesmo minuto pareceria "criada depois do pagamento".
+     * - Só vale a cobrança que ESTE Pix liquidou (`pix_received.end2end_id` igual ao do
+     *   caso). QR Code sem pagamento registrado, estático ou pago por outro Pix volta
+     *   vazio: a criação, a liquidação e o devedor dele não provam nada sobre o caso.
      *
      * @param  array<string, mixed>  $qrCode
      * @return array<string, mixed>
@@ -126,9 +129,8 @@ class InfractionMapper
     public static function toChargeSource(array $qrCode, string $endToEndId): array
     {
         $id = self::string($qrCode['id'] ?? null);
-        $paidBy = self::string(data_get($qrCode, 'pix_received.end2end_id'));
 
-        if ($id === null || ($paidBy !== null && $paidBy !== $endToEndId)) {
+        if ($id === null || self::string(data_get($qrCode, 'pix_received.end2end_id')) !== $endToEndId) {
             return [];
         }
 

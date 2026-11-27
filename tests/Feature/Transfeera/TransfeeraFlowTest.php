@@ -383,6 +383,37 @@ class TransfeeraFlowTest extends TestCase
         $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($dispute, userId: null));
     }
 
+    public function test_attachment_limit_keeps_room_for_the_zip_only_when_there_is_one(): void
+    {
+        config(['services.transfeera.attachments_max_bytes' => 70_000]);
+        $this->fakeApi([
+            'api.transfeera.test/med/infractions/*/analysis' => Http::response($this->infraction(['analysis_status' => 'rejected'])),
+            'api.transfeera.test/med/infractions/segunda-infracao' => Http::response($this->infraction(['id' => 'segunda-infracao'])),
+        ]);
+
+        // Um arquivo só vai como está e pode usar o limite inteiro.
+        $single = $this->openCase(['defense_text' => null, 'seller_statement' => null]);
+        DisputeEvidence::factory()->for($single)->create(['original_name' => 'grande.pdf', 'size' => 69_000]);
+
+        $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($single, userId: null));
+
+        // Dois juntos viram zip: o conjunto precisa caber com a folga, e o que sobra sai do fim.
+        $two = $this->openCase(['woovi_dispute_id' => 'segunda-infracao', 'end_to_end_id' => 'E18236120202611201900s0133872GZB', 'defense_text' => null, 'seller_statement' => null]);
+        DisputeEvidence::factory()->for($two)->create(['original_name' => 'primeiro.pdf', 'size' => 3_000]);
+        DisputeEvidence::factory()->for($two)->create(['original_name' => 'segundo.pdf', 'size' => 4_000]);
+
+        $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($two, userId: null));
+
+        $this->assertNotNull($two->evidences()->where('original_name', 'primeiro.pdf')->sole()->sent_at);
+        $this->assertNull($two->evidences()->where('original_name', 'segundo.pdf')->sole()->sent_at);
+        $this->assertTrue($two->events()->where('event', DisputeEventType::EVIDENCE_SEND_FAILED->value)->where('level', 'warning')->where('message', 'like', '%segundo.pdf%')->exists());
+        Http::assertSent(function (Request $request): bool {
+            $files = collect($request->data())->where('name', 'attachments')->values();
+
+            return str_ends_with($request->url(), '/analysis') && $files->count() === 1 && $files[0]['filename'] === 'primeiro.pdf';
+        });
+    }
+
     public function test_infraction_already_analyzed_is_never_answered_again(): void
     {
         $dispute = $this->openCase();
@@ -579,10 +610,11 @@ class TransfeeraFlowTest extends TestCase
             'payer_question' => 'Processamento de pagamento',
             'payer' => ['name' => 'João da Silva', 'document' => self::PAYER_CPF],
             'additional_info' => null,
-            // Criada às 18:59:10 UTC e liquidada às 19:00:05 UTC. O endToEndId do caso
-            // marca 18:45: a hora que sai dele pode ficar antes da própria cobrança.
-            'created_at' => '2026-11-20T18:59:10.000Z',
-            'settled_at' => '2026-11-20T16:00:05-03:00',
+            // Criada às 18:45:17 UTC e liquidada às 18:45:58 UTC, no mesmo minuto. A hora
+            // que sai do endToEndId do caso é 18:45:00: por ela a cobrança pareceria
+            // criada depois do pagamento.
+            'created_at' => '2026-11-20T18:45:17.000Z',
+            'settled_at' => '2026-11-20T15:45:58-03:00',
             'pix_received' => ['id' => 'cashin-1', 'value' => 250.0, 'end2end_id' => self::E2E, 'txid' => 'ybhgznw0msN2cnaw1Y9d000000'],
         ], $overrides);
     }
@@ -655,8 +687,9 @@ class TransfeeraFlowTest extends TestCase
         $this->assertSame('O pagamento quitou uma cobrança gerada pelo recebedor para a venda, e não foi uma transferência avulsa.', $checks['charge_linked']['fact']);
         $this->assertTrue($dispute->dossier_match['ready']);
 
-        // A hora do pagamento é a liquidação da cobrança, não a do endToEndId (18:45).
-        $this->assertSame('2026-11-20 19:00:05', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+        // A hora do pagamento é a liquidação da cobrança (com os segundos), não o minuto do endToEndId.
+        $this->assertSame('2026-11-20 18:45:58', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+        $this->assertStringContainsString('antes do pagamento', $checks['charge_before_payment']['detail']);
 
         // Na ficha as fontes aparecem com a instituição certa.
         $this->assertSame('Cobrança Pix (Transfeera)', DossierSource::WOOVI_CHARGE->labelFor($dispute->provider()));

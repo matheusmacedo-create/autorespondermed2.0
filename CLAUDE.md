@@ -72,7 +72,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
 - A venda de um Pix da Transfeera sai pelo **id da cobrança (QR Code)**: `GET /pix/qrcode/{txid}` devolve a
   cobrança, e o `id` dela é o `correlation_id` que o unico-api conhece (`/api/med/sales/lookup`); txid,
   `integration_id` e endToEndId não acham nada. A cobrança entra na fonte `WOOVI_CHARGE` com o devedor (cliente do
-  pedido) e a liquidação (`paidAt`) - a hora que sai do endToEndId é só aproximada, não compare com ela.
+  pedido) e a liquidação (`paidAt`) - a hora que sai do endToEndId só tem o minuto: não a compare com a criação da
+  cobrança. Só vale a cobrança que o próprio Pix liquidou (`pix_received.end2end_id` igual ao do caso).
 
 ## WhatsApp (Kapso)
 - Mesmo número oficial e mesma chave do KYC, webhook e segredo próprios (`/api/webhooks/kapso`). A Kapso manda

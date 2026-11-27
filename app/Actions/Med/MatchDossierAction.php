@@ -57,9 +57,9 @@ class MatchDossierAction
         // o txid que o Pix quitou.
         $isTransfeera = data_get($transaction, 'provider') === 'transfeera';
         $viaSale = $isTransfeera && blank($customerTaxId);
-        // Na Transfeera a hora da transação sai do endToEndId e é só aproximada (pode
-        // ficar minutos antes da criação da cobrança): para comparar com a cobrança, só
-        // vale a liquidação dela.
+        // Na Transfeera a hora da transação sai do endToEndId e só tem o minuto: cobrança
+        // criada e paga no mesmo minuto pareceria "criada depois do pagamento". Para
+        // comparar com a cobrança, só vale a liquidação dela.
         $paidAt = data_get($charge, 'provider') === 'transfeera'
             ? data_get($charge, 'paidAt')
             : data_get($transaction, 'time');

@@ -72,11 +72,15 @@ class BuildDossierAction
 
         // Transação, devoluções, comprovante e alegação vêm da instituição da conta. A
         // da Transfeera é gravada nos mesmos campos da Woovi: a conferência é uma só.
-        [$transaction, $correlationId] = $dispute->wooviAccount->isTransfeera()
+        [$transaction, $correlationId, $saleKeyIsNew] = $dispute->wooviAccount->isTransfeera()
             ? $this->transfeeraSources($dispute, $again)
-            : $this->wooviSources($dispute, $again);
+            : [...$this->wooviSources($dispute, $again), false];
 
-        $this->fetch($dispute, DossierSource::UNICOPAG_SALE, $again, function () use ($dispute, $accountId, $transaction, $correlationId) {
+        // A cobrança apareceu agora (não tinha sido localizada antes): a venda foi
+        // procurada com outra chave, então "não achou" de antes não vale mais.
+        $againSale = fn (DossierSource $source): bool => $again($source) || ($saleKeyIsNew && $source === DossierSource::UNICOPAG_SALE);
+
+        $this->fetch($dispute, DossierSource::UNICOPAG_SALE, $againSale, function () use ($dispute, $accountId, $transaction, $correlationId) {
             // Sem account_id também: na conta mestre a venda é que diz de qual lojista é
             // o caso (o unico-api casa pelo correlationID da cobrança).
             if (! $this->unicopag->saleConfigured()) {
@@ -294,7 +298,9 @@ class BuildDossierAction
      * infração relida (alegação, relato de quem contestou e documento do pagador).
      *
      * @param  Closure(DossierSource): bool  $again
-     * @return array{0: array<string, mixed>|null, 1: string|null} a transação e o id da cobrança (ou o integration_id)
+     * @return array{0: array<string, mixed>|null, 1: string|null, 2: bool} a transação, o id da cobrança (ou o
+     *                                                                      integration_id) e se a cobrança foi
+     *                                                                      localizada nesta montagem
      */
     private function transfeeraSources(Dispute $dispute, Closure $again): array
     {
@@ -335,7 +341,13 @@ class BuildDossierAction
         // conhece para achar a venda. Pix sem txid é avulso: não há cobrança.
         $txid = $this->string(data_get($transaction, 'transactionID')) ?? $this->string(data_get($dispute->raw, 'txid'));
 
-        $charge = $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $again, function () use ($dispute, $transaction, $txid, $notFound) {
+        // "Não localizada" aqui não é definitivo: sem a cobrança o caso fica sem a venda
+        // (lojista, produto, cliente), então ela é procurada de novo a cada montagem - é
+        // uma chamada só.
+        $previous = DisputeSource::query()->where('dispute_id', $dispute->id)->where('source', DossierSource::WOOVI_CHARGE->value)->first()?->status;
+        $againCharge = fn (DossierSource $source): bool => $again($source) || $previous === SourceStatus::NOT_FOUND;
+
+        $charge = $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $againCharge, function () use ($dispute, $transaction, $txid, $notFound) {
             if ($transaction === null) {
                 return [SourceStatus::SKIPPED, null];
             }
@@ -378,7 +390,11 @@ class BuildDossierAction
 
         // Sem a cobrança, tenta a venda pelo integration_id do Pix (o txid e o endToEndId
         // seguem junto na busca).
-        return [$transaction, $this->string(data_get($charge, 'correlationID')) ?? $this->string(data_get($transaction, 'integrationId'))];
+        return [
+            $transaction,
+            $this->string(data_get($charge, 'correlationID')) ?? $this->string(data_get($transaction, 'integrationId')),
+            $charge !== null && $previous !== SourceStatus::OK,
+        ];
     }
 
     /**

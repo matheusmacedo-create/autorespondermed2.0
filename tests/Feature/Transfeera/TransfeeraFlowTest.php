@@ -44,6 +44,9 @@ class TransfeeraFlowTest extends TestCase
 
     private WooviAccount $account;
 
+    /** Liga para a Transfeera responder 404 na consulta da cobrança ({@see fakeCompleteCase()}). */
+    private bool $qrCodeMissing = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -638,7 +641,9 @@ class TransfeeraFlowTest extends TestCase
                 'value' => 250.00, 'end2end_id' => self::E2E, 'txid' => 'ybhgznw0msN2cnaw1Y9d000000', 'integration_id' => 'ybhgznw0ms',
                 'payer' => ['name' => 'João da Silva', 'document' => '***.368.460-**'],
             ]),
-            'api.transfeera.test/pix/qrcode/*' => Http::response($qrCode),
+            'api.transfeera.test/pix/qrcode/*' => fn () => $this->qrCodeMissing
+                ? Http::response(['message' => 'Not Found'], 404)
+                : Http::response($qrCode),
             'unico-api.test/api/med/sales/lookup*' => fn (Request $request) => str_contains($request->url(), 'correlation_id=956c88b0-b548-4880-a40a-56ae3e356fe7')
                 ? Http::response(['data' => [
                     'matched_by' => 'correlation_id', 'account_id' => '5826', 'amount_total' => 25000, 'payment_status' => 'refunded',
@@ -723,6 +728,30 @@ class TransfeeraFlowTest extends TestCase
         $this->assertNull($dispute->merchantName());
         // E a hora do pagamento volta a ser a do endToEndId.
         $this->assertSame('2026-11-20 18:45:00', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+    }
+
+    public function test_charge_missed_once_is_looked_up_again_and_then_links_the_sale(): void
+    {
+        $dispute = $this->openCase();
+
+        // Primeira montagem: a Transfeera não devolve a cobrança. O caso fica sem a venda.
+        $this->fakeCompleteCase($this->qrCode());
+        $this->qrCodeMissing = true;
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        $this->assertNull($dispute->sourcePayload(DossierSource::WOOVI_CHARGE));
+        $this->assertNull($dispute->merchantName());
+
+        // Montagem seguinte, sem pedir para refazer: a cobrança é procurada de novo e,
+        // com o id dela, a venda que antes "não existia" é achada.
+        $this->qrCodeMissing = false;
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        $this->assertSame('956c88b0-b548-4880-a40a-56ae3e356fe7', $dispute->sourcePayload(DossierSource::WOOVI_CHARGE)['correlationID']);
+        $this->assertSame('Mega Store', $dispute->merchantName());
+        $this->assertSame('ok', collect($dispute->dossier_match['checks'])->firstWhere('key', 'sale_found')['status']);
     }
 
     public function test_payer_different_from_the_order_customer_is_a_divergence(): void

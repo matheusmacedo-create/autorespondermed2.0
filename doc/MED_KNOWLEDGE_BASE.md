@@ -597,6 +597,9 @@ caminho, conferido nos 7 casos reais (7 de 7 acharam loja, produto e cliente):
   nos 7). QR Code sem pagamento registrado, estático ou pago por outro Pix não é usado - a criação, a liquidação e
   o devedor dele não provam nada sobre o caso. Sem a cobrança (Pix sem txid, QR não localizado), a venda ainda é
   tentada pelo `integration_id` e a conferência do pagador cai para o cliente do pedido.
+- Cobrança "não localizada" não é definitiva: ela é procurada de novo a cada montagem do dossiê e, quando aparece,
+  a venda também é buscada de novo com o id dela (o "não achou" anterior foi com outra chave). A resposta automática
+  não espera por isso: um caso respondido antes de a cobrança aparecer sai sem a venda.
 - As seis respostas de 27/11 saíram antes disso, sem lojista nem produto, e não podem ser completadas.
 
 Como isso foi descoberto: leitura pontual do banco da plataforma (`unicopag-prod`, usuário pessoal só com `SELECT`,

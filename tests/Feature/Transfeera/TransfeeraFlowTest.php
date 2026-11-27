@@ -137,6 +137,21 @@ class TransfeeraFlowTest extends TestCase
         $this->assertDatabaseHas('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::RECEIVED->value, 'source' => 'transfeera']);
     }
 
+    public function test_dates_with_the_brazilian_offset_keep_the_right_instant(): void
+    {
+        // Como a API real manda: -03:00. 15:07 em Brasília são 18:07 UTC.
+        $this->postWebhook($this->infraction([
+            'infraction_date' => '2026-11-26T15:07:10.452-03:00',
+            'analysis_due_date' => '2026-11-30T15:07:10.452-03:00',
+        ]))->assertOk();
+
+        $dispute = Dispute::sole();
+
+        $this->assertSame('2026-11-26 18:07:10', $dispute->opened_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-30 18:07:10', $dispute->respond_by->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('30/11 15:07', $dispute->respond_by->timezone('America/Sao_Paulo')->format('d/m H:i'));
+    }
+
     public function test_webhook_without_valid_signature_is_refused(): void
     {
         $this->postWebhook($this->infraction(), secret: 'segredo-errado')->assertUnauthorized();

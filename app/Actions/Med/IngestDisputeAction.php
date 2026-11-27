@@ -271,6 +271,8 @@ class IngestDisputeAction
             return null;
         }
 
-        return rescue(fn () => Carbon::parse($value), null, report: false);
+        // Para o fuso da aplicação: a Transfeera manda as datas em -03:00, e o banco
+        // guardaria a hora local como se fosse UTC (prazo 3 horas adiantado).
+        return rescue(fn () => Carbon::parse($value)->setTimezone(config('app.timezone')), null, report: false);
     }
 }

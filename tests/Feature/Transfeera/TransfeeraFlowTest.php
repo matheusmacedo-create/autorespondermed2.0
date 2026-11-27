@@ -17,6 +17,7 @@ use App\Models\Dispute;
 use App\Models\DisputeEvidence;
 use App\Models\WooviAccount;
 use App\Models\WooviWebhookCall;
+use App\Services\Transfeera\AttachmentBundler;
 use App\Services\Woovi\WooviException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -284,14 +285,15 @@ class TransfeeraFlowTest extends TestCase
             $files = $parts->where('name', 'attachments')->values();
 
             // A Transfeera aceita um arquivo só: carta e nota vão juntas num zip.
-            if ($files->count() !== 1 || $files[0]['filename'] !== 'defesa-e-evidencias.zip') {
+            if ($files->count() !== 1 || $files[0]['filename'] !== AttachmentBundler::NAME) {
                 return false;
             }
 
             $path = tempnam(sys_get_temp_dir(), 'zip-test-');
             file_put_contents($path, $files[0]['contents']);
             $zip = new ZipArchive;
-            $zip->open($path);
+            // Arquivo que não abre é zip quebrado, não "pedido não enviado".
+            $this->assertTrue($zip->open($path), 'O anexo enviado não é um zip válido.');
             $names = [$zip->getNameIndex(0), $zip->getNameIndex(1)];
             $count = $zip->numFiles;
             $zip->close();
@@ -328,6 +330,57 @@ class TransfeeraFlowTest extends TestCase
 
             return str_ends_with($request->url(), '/analysis') && $files->count() === 1 && $files[0]['filename'] === 'nota.pdf';
         });
+    }
+
+    public function test_without_zip_support_nothing_is_sent_when_there_is_more_than_one_file(): void
+    {
+        // A análise não pode ser completada depois: mandar só a carta deixaria a nota
+        // de fora para sempre. Sem conseguir juntar os anexos, o envio não sai.
+        $this->app->bind(AttachmentBundler::class, fn () => new class extends AttachmentBundler
+        {
+            protected function zipAvailable(): bool
+            {
+                return false;
+            }
+        });
+
+        $dispute = $this->openCase();
+        DisputeEvidence::factory()->for($dispute)->create();
+        $this->fakeApi(['api.transfeera.test/med/infractions/*/analysis' => Http::response($this->infraction(['analysis_status' => 'rejected']))]);
+
+        try {
+            app(SendEvidenceToWooviAction::class)->handle($dispute, userId: null);
+            $this->fail('Deveria recusar.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('extensão zip', $e->getMessage());
+        }
+
+        Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/analysis'));
+
+        $dispute->refresh();
+        $this->assertSame(DisputeStatus::SELLER_SUBMITTED, $dispute->status);
+        $this->assertNull($dispute->evidence_sent_at);
+        $this->assertSame(0, $dispute->evidences()->whereNotNull('sent_at')->count());
+        $this->assertDatabaseHas('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::EVIDENCE_SEND_FAILED->value, 'level' => 'error']);
+        // Falha de ambiente não pode ser lida como recusa por prazo.
+        $this->assertNotContains('a Woovi recusou por prazo expirado', RespondDisputesCommand::blockers($dispute, true));
+    }
+
+    public function test_without_zip_support_a_single_file_still_goes(): void
+    {
+        $this->app->bind(AttachmentBundler::class, fn () => new class extends AttachmentBundler
+        {
+            protected function zipAvailable(): bool
+            {
+                return false;
+            }
+        });
+
+        $dispute = $this->openCase(['defense_text' => null, 'seller_statement' => null]);
+        DisputeEvidence::factory()->for($dispute)->create();
+        $this->fakeApi(['api.transfeera.test/med/infractions/*/analysis' => Http::response($this->infraction(['analysis_status' => 'rejected']))]);
+
+        $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($dispute, userId: null));
     }
 
     public function test_infraction_already_analyzed_is_never_answered_again(): void

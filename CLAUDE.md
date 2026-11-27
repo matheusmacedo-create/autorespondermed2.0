@@ -62,8 +62,9 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   converte a infração e o Pix recebido para os campos que o fluxo lê da Woovi).
 - `agreed` = lojista **perdeu**; `disagreed` = **ganhou**. A resposta é `POST /med/infractions/{id}/analysis`
   com `analysis=rejected`, uma vez só (não edita nem completa) - por isso o envio relê a infração antes e depois
-  de um erro - e com **um arquivo só**: mais de um anexo vai num `defesa-e-evidencias.zip`. Para conferir se o
-  anexo chegou, o `GET` da infração traz `files` (nome e link assinado). O prazo é o `analysis_due_date` de cada
+  de um erro - e com **um arquivo só**: mais de um anexo vai num `defesa-e-evidencias.zip` (`AttachmentBundler`;
+  se o zip não puder ser montado, não envia nada - nunca só uma parte). Para conferir se o anexo chegou, o `GET`
+  da infração traz `files` (nome e link assinado). O prazo é o `analysis_due_date` de cada
   infração (`respond_by`), não as 96h da Woovi.
 - Webhook em `/api/webhooks/transfeera/{webhook_key}`, assinado por HMAC (`Transfeera-Signature`); o segredo só
   entra pela ação "Cadastrar webhooks" - ainda não rodada em produção (a conta já tem um webhook do unico-api

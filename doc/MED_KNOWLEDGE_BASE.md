@@ -548,7 +548,10 @@ fluxo já lia da Woovi.
 automática tentou as 6 pendentes e a Transfeera recusou todas com **400 "Only one file can be uploaded"**: a
 análise aceita **um arquivo só**. Desde então, com mais de um anexo, vão todos num `defesa-e-evidencias.zip` (carta
 primeiro); com um só, vai ele mesmo. Nada foi registrado na Transfeera nessa rodada (os casos ficaram abertos, com a
-falha na linha do tempo). **O unico-api não achou a venda de nenhum dos 6 Pix** em `/api/med/sales/lookup`, nem
+falha na linha do tempo). Se o zip não puder ser montado (servidor sem a extensão zip do PHP, disco cheio, zip
+incompleto), **nada é enviado** e a falha vai para a linha do tempo e o alerta (`AttachmentBundler`): mandar só a
+carta deixaria as outras evidências de fora para sempre. O `med:diagnostico` confere a extensão. **O unico-api não
+achou a venda de nenhum dos 6 Pix** em `/api/med/sales/lookup`, nem
 pelo `integration_id`, nem pelo `txid`, nem pelo endToEndId: a rota só conhece as vendas da Woovi. Sem ela o caso
 fica sem lojista, produto, política da loja e conferência do pagador - pedir ao unico-api a busca das vendas da
 Transfeera (o `integration_id` do Pix é dele).

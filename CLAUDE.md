@@ -36,7 +36,8 @@ eventos e alertas no Discord. Aqui o "onboarding" é o caso de MED e o "document
   em hora (minuto 20) como sistema e pede rascunho novo a quem só falta o rascunho. `med:resultados` cruza as
   decisões da Woovi com a recomendação da IA no envio (guardada no evento) e por loja. `med:placar` é o placar em
   texto (respondidos, aguardando, ganhos e perdidos em R$, o que ficou sem resposta) - a mesma conta
-  (`App\Support\MedScoreboard`) do widget "Resultado das respostas" do painel.
+  (`App\Support\MedScoreboard`) do widget "Resultado das respostas" do painel. O "sem resposta" cobra os tipos que o
+  `med:responder` responde: a lista é uma só (`Dispute::DEFENDED_TYPES`, MED e chargeback) - tipo novo entra lá.
 - `med:diagnostico` confere o ambiente de verdade (worker, cron pelo batimento, e-mail, chaves). Deploy no
   Forge, igual ao KYC: `doc/DEPLOY_FORGE.md` e `deploy/forge-deploy.sh`.
 

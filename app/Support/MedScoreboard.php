@@ -13,8 +13,9 @@ use Illuminate\Support\Collection;
  *
  * Respondido é o que saiu para a instituição da conta - Woovi ou Transfeera - (desde o
  * primeiro envio, fora da janela também: caso enviado nunca é podado). Ganho = REJECTED
- * (o lojista manteve o valor), perdido = ACCEPTED (devolvido ao pagador). O que ficou sem resposta nossa conta à parte, só os
- * MEDs da janela, para comparar.
+ * (o lojista manteve o valor), perdido = ACCEPTED (devolvido ao pagador). O que ficou sem
+ * resposta nossa conta à parte, para comparar: só os casos da janela, e só dos tipos que
+ * o sistema responde (MED e chargeback, `Dispute::DEFENDED_TYPES`).
  */
 final class MedScoreboard
 {
@@ -35,7 +36,11 @@ final class MedScoreboard
 
         return new self(
             Dispute::query()->with('wooviAccount:id,provider')->whereNotNull('evidence_sent_at')->get($columns),
-            Dispute::query()->with('wooviAccount:id,provider')->inWindow()->whereNull('evidence_sent_at')->where('type', 'MED')->get($columns),
+            // "Sem resposta" só dos tipos que o sistema responde, pelo mesmo teste do
+            // `med:responder`: com uma lista à parte aqui (`type = MED`), o chargeback
+            // sem resposta sumia do placar.
+            Dispute::query()->with('wooviAccount:id,provider')->inWindow()->whereNull('evidence_sent_at')->get($columns)
+                ->filter(fn (Dispute $dispute): bool => $dispute->isDefendedType()),
         );
     }
 

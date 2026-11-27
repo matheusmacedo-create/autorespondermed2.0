@@ -1,7 +1,7 @@
 # MED - Base de Conhecimento
 
 > **Documento vivo.** Registra como o responder de MED **é** e o que se sabe do contrato da Woovi.
-> Última atualização: 2026-11-26 (Transfeera, seção 12).
+> Última atualização: 2026-11-27 (placar com chargeback sem resposta; Transfeera em produção, seção 12).
 
 Mesma regra do KYC: comportamento e decisão vêm para cá; o que falta fazer vai para o card. Cada fato diz
 como foi apurado - `[doc-woovi]` documentação pública da Woovi, `[openapi]` spec do repo
@@ -586,6 +586,10 @@ pelo `med:responder` (primeiro a de prazo mais próximo, conferida, depois as ou
 
 ## Histórico de atualizações
 
+- **2026-11-27** - placar: o "sem resposta nossa" (`med:placar` e widget) cobra os mesmos tipos que o `med:responder`
+  responde - MED e chargeback, lista única em `Dispute::DEFENDED_TYPES`. Desde 06/11 o chargeback era defendido, mas o
+  placar só contava MED sem resposta: em 27/11 o #508 (chargeback de R$ 193,91 aberto em 17/11, prazo da Woovi
+  vencido) aparecia no `med:responder` e o placar mostrava 0 sem resposta. Ganho e perdido não mudam.
 - **2026-11-27** - Transfeera em produção (seção 12): site do Forge na `main`, conta cadastrada, um arquivo só por
   análise (zip), 6 infrações contestadas e conferidas pelo campo `files`; placar passa a separar as instituições.
 - **2026-11-26** - Transfeera como segunda instituição (seção 12): `provider` na conta, webhook `Infraction`,

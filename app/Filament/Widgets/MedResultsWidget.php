@@ -52,6 +52,6 @@ class MedResultsWidget extends StatsOverviewWidget
         $won = $board->won($board->unanswered)->count();
         $lost = $board->lost($board->unanswered)->count();
 
-        return 'Para comparar: sem defesa nossa, '.($won + $lost)." MED(s) da janela foram decididos - {$won} ganho(s) e {$lost} perdido(s).";
+        return 'Para comparar: sem defesa nossa, '.($won + $lost)." caso(s) da janela (MED e chargeback) foram decididos - {$won} ganho(s) e {$lost} perdido(s).";
     }
 }

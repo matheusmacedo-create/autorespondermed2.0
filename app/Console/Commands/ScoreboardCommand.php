@@ -52,7 +52,7 @@ class ScoreboardCommand extends Command
         $this->line('  taxa de ganho: '.($rate !== null ? "{$rate}% dos decididos" : 'nenhum decidido ainda'));
 
         $start = Dispute::windowStart();
-        $this->line('Sem resposta nossa'.($start ? ' (MEDs abertos desde '.$start->timezone($tz)->format('d/m').')' : '').':');
+        $this->line('Sem resposta nossa'.($start ? ' (MEDs e chargebacks abertos desde '.$start->timezone($tz)->format('d/m').')' : '').':');
         $line('ainda no prazo', $board->unansweredOpen(withinDeadline: true));
         $line('prazo vencido', $board->unansweredOpen(withinDeadline: false));
         $line('decididos: ganhos', $board->won($board->unanswered));

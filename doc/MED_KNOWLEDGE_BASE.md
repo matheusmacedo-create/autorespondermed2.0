@@ -89,8 +89,15 @@ Woovi (conta do seller) --webhook OPENPIX:DISPUTE_*--> /api/webhooks/woovi/{webh
 - Erro documentado: `400 "You cannot send a evidence for a accepted dispute"`. `[openapi]`
 - **O GET de MED não traz valor, pagador nem horário** (dispute-get-payload: só type, status, endToEndId e
   id). Quem traz é a transação - o dossiê preenche `disputes.value` com ela. `[doc-woovi]` `[código]`
-- `GET /transaction/{id}` responde transação inexistente com **400 "Transaction not found"**, não 404;
-  `WooviException::isNotFound()` trata os dois. `[doc-woovi]`
+- `GET /transaction/{id}` responde transação inexistente com **400**, não 404. A doc traz "Transaction not found"
+  `[doc-woovi]`; **em produção a mensagem vem em português: "Transação não encontrada"** (caso #508, chargeback de
+  R$ 193,91, visto em 27/11/2026) `[produção]` - como o "Disputa não encontrada" do `GET /dispute/{id}`.
+  `WooviException::isNotFound()` trata o 404 e o 400 que diz "not found" ou "não encontrada/o" (em qualquer caixa,
+  com ou sem til), e olha a mensagem já decodificada além do corpo bruto: o JSON pode trazer o acento escapado
+  (`n\u00e3o`, como no `Http::response` dos testes), e aí a frase não está no corpo. Vale para as cinco
+  consultas da Woovi no dossiê (transação, cobrança, devoluções, comprovante e recuperação de fundos); nas outras
+  quatro a mensagem em português ainda não foi vista. O `SyncDisputeAction` não passa por ele: qualquer recusa do
+  `GET /dispute` vira `sync_failed`. `[código]`
 - Pix avulso (pago direto na chave) vem com `charge: null`: sem cobrança, sem correlationID, sem
   `additionalInfo` e sem como ligar à venda na plataforma. `[doc-woovi]`
 - `debitParty`/`creditParty` aparecem só no **exemplo** do GET de transação, com os papéis aparentemente
@@ -467,6 +474,12 @@ Mesma `X-API-Key` (`API_KEY`), fail-closed: sem chave configurada, nega.
 
 ## Histórico de atualizações
 
+- **2026-11-27** - a Woovi responde transação inexistente em português ("Transação não encontrada", HTTP 400), não
+  com o "Transaction not found" da doc: o `isNotFound()` só lia o inglês, a fonte ficava `failed` e o caso #508
+  tinha o dossiê remontado três vezes por hora (a da sincronização e as duas novas tentativas do job: 12:00, 12:01
+  e 12:06), com os eventos repetidos na linha do tempo. Agora a fonte fica `not_found` (a Woovi não é perguntada
+  de novo) e o dossiê `partial`, que só volta à fila a cada 6h; a transação segue "não conferida" para o
+  `med:responder` (2.1).
 - **2026-11-26** - SQLite de produção com WAL, busy_timeout e transação IMMEDIATE (seção 7).
 - **2026-11-07** - rotas de leitura para o RiskOps do KYC (`GET /api/riskops/disputas` e `/{conta}`, X-API-Key
   `RISKOPS_API_KEY`): o MED continua em SQLite no servidor e o KYC lê por API, não pelo banco. A conta agrupada é

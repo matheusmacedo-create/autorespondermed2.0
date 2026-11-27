@@ -98,6 +98,69 @@ class BuildDossierTest extends DossierTestCase
         $this->assertDatabaseHas('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::DOSSIER_SOURCE_FAILED->value, 'level' => 'warning']);
     }
 
+    public function test_transaction_the_woovi_does_not_find_is_an_answer_not_a_failure(): void
+    {
+        // Produção, caso #508 (27/11/2026): a Woovi responde em português, não com o
+        // "Transaction not found" da doc.
+        $this->fakes['transaction'] = Http::response(['error' => 'Transação não encontrada'], 400);
+
+        $dispute = $this->receive();
+
+        $statuses = $dispute->sources->mapWithKeys(fn (DisputeSource $s): array => [$s->source->value => $s->status]);
+        $this->assertSame(SourceStatus::NOT_FOUND, $statuses['woovi_transaction']);
+        $this->assertSame(SourceStatus::SKIPPED, $statuses['woovi_charge']);
+        $this->assertSame('partial', $dispute->dossier_status);
+
+        $check = $this->checks($dispute)['transaction_found'];
+        $this->assertSame(MatchDossierAction::DIVERGENT, $check['status']);
+        $this->assertStringStartsWith('A Woovi não encontrou a transação', $check['detail']);
+        $this->assertFalse($dispute->dossier_match['ready']);
+        $this->assertDatabaseMissing('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::DOSSIER_SOURCE_FAILED->value]);
+    }
+
+    public function test_case_whose_transaction_the_woovi_does_not_find_is_not_rebuilt_every_hour(): void
+    {
+        $this->fakes['transaction'] = Http::response(['error' => 'Transação não encontrada'], 400);
+        $dispute = $this->receive();
+
+        // Novo fake: daqui em diante só fica gravado o que a sincronização pedir.
+        Http::fake([
+            'api.woovi.test/api/v1/dispute?*' => Http::response(['disputes' => [], 'pageInfo' => ['hasNextPage' => false]]),
+            'api.woovi.test/api/v1/dispute/*' => Http::response(['dispute' => ['status' => 'OPENED', 'endToEndId' => self::E2E, 'type' => 'MED']]),
+        ]);
+        $builds = fn (): int => $dispute->events()->where('event', DisputeEventType::DOSSIER_BUILT->value)->count();
+
+        // Como "failed", o caso voltava para a fila a cada sincronização.
+        $this->travel(1)->hours();
+        $this->artisan('med:sincronizar')->assertSuccessful();
+        $this->assertSame(1, $builds());
+
+        // Como "partial", volta a cada 6h - e "não encontrada" é resposta: a Woovi não
+        // é perguntada de novo.
+        $this->travel(6)->hours();
+        $this->artisan('med:sincronizar')->assertSuccessful();
+        $this->assertSame(2, $builds());
+        Http::assertSent(fn (Request $r): bool => str_contains($r->url(), '/api/v1/dispute/'));
+        Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), '/api/v1/transaction/'));
+    }
+
+    public function test_other_woovi_sources_not_found_in_portuguese_are_answers_too(): void
+    {
+        // Mesma regra da transação (WooviException::isNotFound). Em produção só a
+        // mensagem da transação foi vista; estas são supostas, no mesmo padrão.
+        $this->fakes['charge'] = Http::response(['error' => 'Cobrança não encontrada'], 400);
+        $this->fakes['refunds'] = Http::response(['error' => 'Cobrança não encontrada'], 400);
+        $this->fakes['receipt'] = Http::response(['error' => 'Comprovante não encontrado'], 400);
+        $this->fakes['funds'] = Http::response(['error' => 'Recuperação de fundos não encontrada'], 400);
+
+        $dispute = $this->receive();
+
+        foreach ([DossierSource::WOOVI_CHARGE, DossierSource::WOOVI_REFUNDS, DossierSource::WOOVI_RECEIPT, DossierSource::WOOVI_FUNDS_RECOVERY] as $source) {
+            $this->assertSame(SourceStatus::NOT_FOUND, $dispute->sources->firstWhere('source', $source)->status, $source->value);
+        }
+        $this->assertDatabaseMissing('dispute_events', ['dispute_id' => $dispute->id, 'event' => DisputeEventType::DOSSIER_SOURCE_FAILED->value]);
+    }
+
     public function test_failed_source_is_fetched_again_and_ok_sources_are_not(): void
     {
         $this->fakes['kyc'] = Http::response('erro', 500);

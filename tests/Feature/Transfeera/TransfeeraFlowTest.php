@@ -562,6 +562,136 @@ class TransfeeraFlowTest extends TestCase
             && str_contains($request->url(), 'txid=6e43085c2bee41cb83029bb898f90da6'));
     }
 
+    /**
+     * Cobrança Pix (QR Code) como a Transfeera devolve em `GET /pix/qrcode/{txid}`.
+     *
+     * @return array<string, mixed>
+     */
+    private function qrCode(array $overrides = []): array
+    {
+        return array_merge([
+            'id' => '956c88b0-b548-4880-a40a-56ae3e356fe7',
+            'qrcode_type' => 'COBRANCA_IMEDIATA',
+            'status' => 'CONCLUIDA',
+            'txid' => 'ybhgznw0msN2cnaw1Y9d000000',
+            'integration_id' => 'ybhgznw0ms',
+            'original_value' => 250.0,
+            'payer_question' => 'Processamento de pagamento',
+            'payer' => ['name' => 'João da Silva', 'document' => self::PAYER_CPF],
+            'additional_info' => null,
+            // Criada às 18:59:10 UTC e liquidada às 19:00:05 UTC. O endToEndId do caso
+            // marca 18:45: a hora que sai dele pode ficar antes da própria cobrança.
+            'created_at' => '2026-11-20T18:59:10.000Z',
+            'settled_at' => '2026-11-20T16:00:05-03:00',
+            'pix_received' => ['id' => 'cashin-1', 'value' => 250.0, 'end2end_id' => self::E2E, 'txid' => 'ybhgznw0msN2cnaw1Y9d000000'],
+        ], $overrides);
+    }
+
+    /**
+     * API falsa do caso completo: Pix, cobrança, e a venda que o unico-api só acha
+     * pelo id da cobrança.
+     *
+     * @param  array<string, mixed>  $qrCode
+     */
+    private function fakeCompleteCase(array $qrCode, string $customerDocument = '591.368.460-58'): void
+    {
+        config([
+            'services.unicopag.key' => 'chave-med',
+            'services.unicopag.sale_endpoint' => '/api/med/sales/lookup?correlation_id={correlation_id}&end_to_end_id={end_to_end_id}&txid={txid}',
+        ]);
+
+        $this->fakeApi([
+            'api.transfeera.test/pix/cashin/*/refund' => Http::response(['entries' => []]),
+            'api.transfeera.test/pix/cashin/*' => Http::response([
+                'value' => 250.00, 'end2end_id' => self::E2E, 'txid' => 'ybhgznw0msN2cnaw1Y9d000000', 'integration_id' => 'ybhgznw0ms',
+                'payer' => ['name' => 'João da Silva', 'document' => '***.368.460-**'],
+            ]),
+            'api.transfeera.test/pix/qrcode/*' => Http::response($qrCode),
+            'unico-api.test/api/med/sales/lookup*' => fn (Request $request) => str_contains($request->url(), 'correlation_id=956c88b0-b548-4880-a40a-56ae3e356fe7')
+                ? Http::response(['data' => [
+                    'matched_by' => 'correlation_id', 'account_id' => '5826', 'amount_total' => 25000, 'payment_status' => 'refunded',
+                    'seller' => ['name' => 'ESTOKAZ LTDA', 'trade_name' => 'Mega Store', 'document' => '12345678000199', 'kyc_status' => 'approved'],
+                    'customer' => ['name' => 'João da Silva', 'document' => $customerDocument],
+                    'order' => ['id' => '#32367', 'product_type' => 'physical', 'items' => [['name' => 'Dentadura Premium', 'quantity' => 1, 'unit_amount' => 25000]]],
+                    'fulfillment' => ['status' => 'pending'],
+                ]])
+                : Http::response(['message' => 'not found'], 404),
+            // Com o lojista identificado pela venda, o KYC é consultado pela conta dele.
+            'kyc.test/api/onboarding/status*' => fn (Request $request) => str_contains($request->url(), 'account_id=5826')
+                ? Http::response(['success' => true, 'status' => 'approved'])
+                : Http::response([], 404),
+            '*' => Http::response([], 404),
+        ]);
+    }
+
+    public function test_charge_found_by_the_txid_links_the_sale_and_completes_the_dossier(): void
+    {
+        $dispute = $this->openCase(['status' => DisputeStatus::PENDING_SELLER, 'seller_submitted_at' => null, 'seller_statement' => null]);
+        $this->fakeCompleteCase($this->qrCode());
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        // A cobrança foi buscada pelo txid do Pix, e a venda pelo id dela.
+        Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/pix/qrcode/ybhgznw0msN2cnaw1Y9d000000'));
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'sales/lookup')
+            && str_contains($request->url(), 'correlation_id=956c88b0-b548-4880-a40a-56ae3e356fe7')
+            && str_contains($request->url(), 'txid=ybhgznw0msN2cnaw1Y9d000000'));
+
+        $charge = $dispute->sourcePayload(DossierSource::WOOVI_CHARGE);
+        $this->assertSame('956c88b0-b548-4880-a40a-56ae3e356fe7', $charge['correlationID']);
+        $this->assertSame(25000, $charge['value']);
+        $this->assertSame(self::PAYER_CPF, $charge['customer']['taxID']['taxID']);
+
+        // O lojista do caso vem da venda.
+        $this->assertSame('Mega Store', $dispute->merchantName());
+        $this->assertSame('5826', $dispute->merchant_account_id);
+        $this->assertSame('Dentadura Premium', $dispute->products());
+
+        $checks = collect($dispute->dossier_match['checks'])->keyBy('key');
+        foreach (['transaction_found', 'value_matches', 'charge_linked', 'charge_before_payment', 'payer_is_customer', 'no_refund', 'sale_found', 'sale_amount_matches', 'kyc_approved'] as $key) {
+            $this->assertSame('ok', $checks[$key]['status'], $key);
+        }
+        $this->assertSame('Quem pagou é o cliente da cobrança', $checks['payer_is_customer']['label']);
+        $this->assertSame('O pagamento quitou uma cobrança gerada pelo recebedor para a venda, e não foi uma transferência avulsa.', $checks['charge_linked']['fact']);
+        $this->assertTrue($dispute->dossier_match['ready']);
+
+        // A hora do pagamento é a liquidação da cobrança, não a do endToEndId (18:45).
+        $this->assertSame('2026-11-20 19:00:05', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+
+        // Na ficha as fontes aparecem com a instituição certa.
+        $this->assertSame('Cobrança Pix (Transfeera)', DossierSource::WOOVI_CHARGE->labelFor($dispute->provider()));
+        $this->assertSame('Alegação do MED (Transfeera)', DossierSource::WOOVI_FUNDS_RECOVERY->labelFor($dispute->provider()));
+        $this->assertSame('Cobrança Pix (Woovi)', DossierSource::WOOVI_CHARGE->labelFor(Provider::WOOVI));
+    }
+
+    public function test_someone_else_paying_the_charge_is_a_divergence(): void
+    {
+        $dispute = $this->openCase();
+        // O devedor da cobrança é o cliente do pedido; quem pagou (o da infração) é outro.
+        $this->fakeCompleteCase($this->qrCode(['payer' => ['name' => 'Maria Cliente', 'document' => '12345678909']]), customerDocument: '123.456.789-09');
+
+        $checks = collect(app(BuildDossierAction::class)->handle($dispute)->dossier_match['checks'])->keyBy('key');
+
+        $this->assertSame('divergent', $checks['payer_is_customer']['status']);
+        $this->assertSame('CPF/CNPJ de quem pagou é diferente do cliente da cobrança.', $checks['payer_is_customer']['detail']);
+        $this->assertSame('ok', $checks['charge_linked']['status']);
+    }
+
+    public function test_charge_paid_by_another_pix_is_not_used(): void
+    {
+        $dispute = $this->openCase();
+        $this->fakeCompleteCase($this->qrCode(['pix_received' => ['end2end_id' => 'E00000000202611201845outroPix00000']]));
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        $this->assertNull($dispute->sourcePayload(DossierSource::WOOVI_CHARGE));
+        // Sem a cobrança, a venda é procurada pelo integration_id do Pix (e não é achada aqui).
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'sales/lookup') && str_contains($request->url(), 'correlation_id=ybhgznw0ms&'));
+        $this->assertNull($dispute->merchantName());
+        // E a hora do pagamento volta a ser a do endToEndId.
+        $this->assertSame('2026-11-20 18:45:00', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+    }
+
     public function test_payer_different_from_the_order_customer_is_a_divergence(): void
     {
         config(['services.unicopag.key' => 'chave-med', 'services.unicopag.sale_endpoint' => '/api/med/sales/lookup?end_to_end_id={end_to_end_id}']);

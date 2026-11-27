@@ -125,6 +125,19 @@ class TransfeeraClient
     }
 
     /**
+     * GET /pix/qrcode/{id} - a cobrança Pix (QR Code) pelo id dela ou pelo txid. Traz o
+     * devedor informado na criação (`payer`), quando foi criada (`created_at`) e quando
+     * foi liquidada (`settled_at`). O `id` dela é o identificador que a plataforma guarda
+     * na venda - é por ele que o unico-api acha a venda de um Pix da Transfeera.
+     *
+     * @return array<string, mixed>
+     */
+    public function getQrCode(string $idOrTxid): array
+    {
+        return (array) $this->send(fn (PendingRequest $http) => $http->get('/pix/qrcode/'.rawurlencode($idOrTxid)), 'a consulta da cobrança Pix')->json();
+    }
+
+    /**
      * GET /pix/cashin/{end2endId}/refund - devoluções já feitas do Pix.
      *
      * @return array<int, array<string, mixed>>

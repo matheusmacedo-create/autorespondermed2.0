@@ -207,7 +207,10 @@ class SendEvidenceToWooviAction
      */
     private function transfeeraAttachments(Collection $pending): array
     {
-        $budget = (int) config('services.transfeera.attachments_max_bytes', 15 * 1024 * 1024);
+        // O limite vale para o arquivo enviado. Com mais de um anexo ele é um zip, que
+        // acrescenta cabeçalhos (PDF e imagem já são compactados e não encolhem): a
+        // folga evita montar um zip um pouco acima do limite.
+        $budget = max(0, (int) config('services.transfeera.attachments_max_bytes', 15 * 1024 * 1024) - 64 * 1024);
         $allowed = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-rar-compressed', 'application/vnd.rar'];
         $attachments = [];
         $included = new Collection;

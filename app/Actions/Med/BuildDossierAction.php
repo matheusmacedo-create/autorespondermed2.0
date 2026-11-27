@@ -166,7 +166,7 @@ class BuildDossierAction
             DisputeEventType::DOSSIER_BUILT,
             $dispute,
             'Dossiê automático: '.$dispute->sources
-                ->map(fn (DisputeSource $s): string => $s->source->label().' - '.mb_strtolower($s->status->label()))
+                ->map(fn (DisputeSource $s): string => $s->source->labelFor($dispute->provider()).' - '.mb_strtolower($s->status->label()))
                 ->implode('; ').'.',
             ['sources' => $statuses->all(), 'refresh' => $refresh, 'refresh_sources' => array_map(fn (DossierSource $s) => $s->value, $refreshSources)],
         );
@@ -289,13 +289,12 @@ class BuildDossierAction
     }
 
     /**
-     * Fontes da Transfeera: o Pix recebido (`/pix/cashin`), as devoluções dele, o
-     * comprovante (link do próprio cash-in) e a infração relida (alegação, relato de
-     * quem contestou e documento do pagador). Não existe "cobrança" separada: o txid
-     * e o `integration_id` vêm no Pix.
+     * Fontes da Transfeera: o Pix recebido (`/pix/cashin`), a cobrança que ele pagou
+     * (`/pix/qrcode/{txid}`), as devoluções, o comprovante (link do próprio cash-in) e a
+     * infração relida (alegação, relato de quem contestou e documento do pagador).
      *
      * @param  Closure(DossierSource): bool  $again
-     * @return array{0: array<string, mixed>|null, 1: string|null} a transação e o integration_id
+     * @return array{0: array<string, mixed>|null, 1: string|null} a transação e o id da cobrança (ou o integration_id)
      */
     private function transfeeraSources(Dispute $dispute, Closure $again): array
     {
@@ -331,6 +330,23 @@ class BuildDossierAction
             });
         });
 
+        // A cobrança (QR Code) que o Pix pagou, pelo txid: traz o cliente do pedido, a
+        // hora da criação e a da liquidação - e o id dela é a chave que o unico-api
+        // conhece para achar a venda. Pix sem txid é avulso: não há cobrança.
+        $txid = $this->string(data_get($transaction, 'transactionID')) ?? $this->string(data_get($dispute->raw, 'txid'));
+
+        $charge = $this->fetch($dispute, DossierSource::WOOVI_CHARGE, $again, function () use ($dispute, $transaction, $txid, $notFound) {
+            if ($transaction === null) {
+                return [SourceStatus::SKIPPED, null];
+            }
+
+            if ($txid === null) {
+                return [SourceStatus::NOT_FOUND, null];
+            }
+
+            return $notFound(fn () => InfractionMapper::toChargeSource(TransfeeraClient::for($dispute->wooviAccount)->getQrCode($txid), $dispute->end_to_end_id));
+        });
+
         $this->fetch($dispute, DossierSource::WOOVI_REFUNDS, $again, function () use ($dispute, $transaction, $notFound) {
             if ($transaction === null) {
                 return [SourceStatus::SKIPPED, null];
@@ -360,7 +376,9 @@ class BuildDossierAction
             return [SourceStatus::OK, ['stored' => true]];
         });
 
-        return [$transaction, $this->string(data_get($transaction, 'integrationId'))];
+        // Sem a cobrança, tenta a venda pelo integration_id do Pix (o txid e o endToEndId
+        // seguem junto na busca).
+        return [$transaction, $this->string(data_get($charge, 'correlationID')) ?? $this->string(data_get($transaction, 'integrationId'))];
     }
 
     /**
@@ -438,7 +456,7 @@ class BuildDossierAction
             $this->events->record(
                 DisputeEventType::DOSSIER_SOURCE_FAILED,
                 $dispute,
-                "{$source->label()}: {$error}",
+                "{$source->labelFor($dispute->provider())}: {$error}",
                 ['source' => $source->value, 'kept_previous' => $row->exists && $row->status === SourceStatus::OK],
                 level: 'warning',
             );

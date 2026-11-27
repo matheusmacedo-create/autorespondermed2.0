@@ -570,6 +570,47 @@ pelo `med:responder` (primeiro a de prazo mais próximo, conferida, depois as ou
   `Infraction`, e a doc não diz se dois webhooks do mesmo tipo convivem. Até lá a infração nova entra pela
   sincronização de hora em hora, que basta para o prazo de 96h.
 
+**A venda de um Pix da Transfeera (27/11/2026)** `[produção]`: a rota de venda do unico-api **acha** a venda da
+Transfeera - o que faltava era a chave certa. A plataforma guarda em `transactions.transaction` o **id da cobrança
+Pix (QR Code)**, não o txid, o `integration_id` nem o endToEndId; por isso as buscas de antes voltavam 404. O
+caminho, conferido nos 7 casos reais (7 de 7 acharam loja, produto e cliente):
+
+1. `GET /pix/qrcode/{txid}` na Transfeera (aceita o id do QR Code ou o txid; o txid vem no Pix recebido e na
+   infração) devolve a cobrança: `id`, `qrcode_type` (`COBRANCA_IMEDIATA`), `status` (`CONCLUIDA`), `original_value`
+   (reais), `payer_question`, `payer {name, document}`, `created_at` (UTC), `settled_at` (-03:00), `pix_received`.
+2. `GET /api/med/sales/lookup?correlation_id=<id da cobrança>` no unico-api devolve a venda completa (lojista,
+   pedido, itens, cliente, entrega), como nos casos da Woovi.
+
+- A cobrança vira a fonte "Cobrança Pix" do dossiê (`InfractionMapper::toChargeSource`), nos mesmos campos da
+  cobrança da Woovi. Com ela a conferência é a mesma: Pix pagou uma cobrança do recebedor, cobrança criada antes
+  do pagamento, e **quem pagou x cliente da cobrança**.
+- **`payer` do QR Code é o devedor informado na criação (o cliente do pedido), não quem pagou**: nos 7 casos ele é
+  igual ao cliente da venda, e em 2 deles (#556 e #558) quem pagou o Pix é outra pessoa. Não é a armadilha do
+  `transaction.customer` da Woovi.
+- **A hora que sai do endToEndId é só aproximada**: no #560 e no #562 ela fica 12 a 15 minutos antes da própria
+  criação da cobrança. Com a cobrança localizada, a hora do pagamento é o `settled_at` (`Dispute::paidAt()`, o
+  registro da venda e o item "cobrança criada antes do pagamento"); sem ela, esse item fica sem dado em vez de
+  acusar divergência falsa.
+- QR Code cujo `pix_received.end2end_id` é de outro Pix não é usado. Sem a cobrança (Pix sem txid, QR não
+  localizado), a venda ainda é tentada pelo `integration_id` e a conferência do pagador cai para o cliente do
+  pedido.
+- As seis respostas de 27/11 saíram antes disso, sem lojista nem produto, e não podem ser completadas.
+
+Como isso foi descoberto: leitura pontual do banco da plataforma (`unicopag-prod`, usuário pessoal só com `SELECT`,
+a partir do servidor de produção, em 27/11). **O MED não lê o banco em produção e não guarda credencial dele**; fica
+aqui só o que ajuda a entender a plataforma:
+- `transactions`: `transaction` = id da cobrança no adquirente (Woovi: correlationID; Transfeera: id do QR Code),
+  `acquirer_name` = `unicopag` nas duas, `hash` = id público da transação, `amount_total` em centavos, datas em
+  horário de Brasília. `payment_status`: 5 aguardando, 3 pago, 4 devolvido (é o MED: `refund_at` = hora em que a
+  infração chegou - por isso a venda de um caso em MED vem como `refunded`), 12 a maioria das não pagas.
+- `payment_data` (JSON) nas vendas da Transfeera: `txid`, `integration_id`, `qrcode_id`, `end2end_id`, `cashin_id`;
+  nas da Woovi, só o link e o QR Code.
+- `transaction_med_pixs`: o registro de MED da própria plataforma (`infraction_id` = id da infração na Transfeera,
+  ou o endToEndId na Woovi; `transaction_id`; `status` `without_documentation`, `med_aproved`, `med_reproved`...).
+  Tinha 5 das 7 infrações da Transfeera, e no #560 apontava para outra venda da mesma loja (mesmo txid e
+  endToEndId no `payment_data`, cobrança criada 15 minutos depois) - não é fonte segura para ligar o caso à venda.
+- O usuário não tinha acesso à tabela de clientes; o cliente da venda vem pela rota do unico-api.
+
 **Em aberto (conferir com chamada real ou com o suporte da Transfeera):**
 1. Se dois webhooks com o mesmo tipo de objeto (`Infraction`) convivem na mesma conta - perguntar ao suporte antes
    de cadastrar o do MED ao lado do que o unico-api já tem.
@@ -578,14 +619,15 @@ pelo `med:responder` (primeiro a de prazo mais próximo, conferida, depois as ou
 4. ~~IP e mTLS~~ - resolvido em 27/11: o servidor de produção leu e respondeu por `api.transfeera.com`, sem mTLS
    e sem liberação de IP.
 5. Se um mesmo endToEndId pode ter mais de uma infração (o caso é por id da infração, então não se misturam).
-6. O unico-api **não acha** a venda de Pix da Transfeera em `/api/med/sales/lookup` (testado em 27/11 por `txid`,
-   `integration_id` e endToEndId): pedir a busca ao unico-api. Sem a venda não há lojista, produto, política da
-   loja nem conferência do pagador.
+6. ~~Venda de Pix da Transfeera~~ - resolvido em 27/11: a rota do unico-api acha a venda pelo id da cobrança Pix
+   (`GET /pix/qrcode/{txid}`), não por `txid`, `integration_id` nem endToEndId.
 7. Não há como simular infração no sandbox pela doc: pedir ao suporte.
 8. O comprovante `/pub/receipt/...` é público pelo link; não há rota documentada para emiti-lo de novo.
 
 ## Histórico de atualizações
 
+- **2026-11-27** - venda de Pix da Transfeera localizada pelo id da cobrança (`/pix/qrcode/{txid}`): dossiê
+  completo também na Transfeera; hora do pagamento pela liquidação da cobrança, não pelo endToEndId (seção 12).
 - **2026-11-27** - Transfeera em produção (seção 12): site do Forge na `main`, conta cadastrada, um arquivo só por
   análise (zip), 6 infrações contestadas e conferidas pelo campo `files`; placar passa a separar as instituições.
 - **2026-11-26** - Transfeera como segunda instituição (seção 12): `provider` na conta, webhook `Infraction`,

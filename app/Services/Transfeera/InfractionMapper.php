@@ -73,7 +73,9 @@ class InfractionMapper
      * conferência e o registro da venda leem.
      *
      * - `value` vem em reais (50.54) e vira centavos.
-     * - O cash-in não tem data: a hora do Pix sai do próprio endToEndId.
+     * - O cash-in não tem data: a hora do Pix sai do próprio endToEndId. É aproximada
+     *   (em produção ficou até 15 minutos antes da liquidação); quando a cobrança é
+     *   localizada, vale o `paidAt` dela ({@see toChargeSource()}).
      * - O documento do pagador pode vir mascarado ("***.274.581-**"); nesse caso vale
      *   o da infração, que vem inteiro.
      *
@@ -102,6 +104,55 @@ class InfractionMapper
             'receiver' => array_filter([
                 'name' => self::string(data_get($cashIn, 'receiver.name')),
             ]),
+        ], fn ($value) => $value !== null && $value !== []);
+    }
+
+    /**
+     * Cobrança Pix (`GET /pix/qrcode/{txid}`) -> fonte "cobrança", nos campos que a
+     * conferência e o registro da venda leem da cobrança da Woovi.
+     *
+     * - `correlationID` é o id do QR Code: a plataforma o guarda na venda, e é com ele
+     *   que a rota de venda do unico-api acha o pedido.
+     * - `customer` é o devedor informado quando a cobrança foi criada (o cliente do
+     *   pedido), não quem pagou - conferido em produção: nos casos em que outra pessoa
+     *   pagou, ele continua igual ao cliente da venda.
+     * - `paidAt` é a liquidação (`settled_at`), a hora real do pagamento. A hora que
+     *   sai do endToEndId pode ficar minutos antes dela.
+     * - Vazio quando o QR Code foi pago por outro Pix (estático, ou txid reaproveitado).
+     *
+     * @param  array<string, mixed>  $qrCode
+     * @return array<string, mixed>
+     */
+    public static function toChargeSource(array $qrCode, string $endToEndId): array
+    {
+        $id = self::string($qrCode['id'] ?? null);
+        $paidBy = self::string(data_get($qrCode, 'pix_received.end2end_id'));
+
+        if ($id === null || ($paidBy !== null && $paidBy !== $endToEndId)) {
+            return [];
+        }
+
+        $taxId = self::taxId(data_get($qrCode, 'payer.document'));
+
+        return array_filter([
+            'provider' => 'transfeera',
+            'correlationID' => $id,
+            'txid' => self::string($qrCode['txid'] ?? null),
+            'type' => self::string($qrCode['qrcode_type'] ?? null),
+            'status' => self::string($qrCode['status'] ?? null),
+            'value' => is_numeric($qrCode['original_value'] ?? null) ? (int) round(abs((float) $qrCode['original_value']) * 100) : null,
+            'comment' => self::string($qrCode['payer_question'] ?? null),
+            'createdAt' => self::string($qrCode['created_at'] ?? null),
+            'paidAt' => self::string($qrCode['settled_at'] ?? null),
+            'customer' => array_filter([
+                'name' => self::string(data_get($qrCode, 'payer.name')),
+                'taxID' => $taxId !== null ? ['taxID' => $taxId] : null,
+            ]),
+            'additionalInfo' => collect((array) ($qrCode['additional_info'] ?? []))
+                ->filter(fn ($item): bool => is_array($item) && filled($item['key'] ?? null))
+                ->map(fn (array $item): array => ['key' => (string) $item['key'], 'value' => (string) ($item['value'] ?? '')])
+                ->values()
+                ->all(),
         ], fn ($value) => $value !== null && $value !== []);
     }
 

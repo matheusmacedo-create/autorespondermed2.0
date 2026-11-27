@@ -146,11 +146,16 @@ class Dispute extends Model
     }
 
     /**
-     * Quando o Pix foi pago: a hora da transação na Woovi, ou a data da venda.
+     * Quando o Pix foi pago: a hora da transação na Woovi, ou a data da venda. Na
+     * Transfeera vale a liquidação da cobrança (`paidAt`): a hora da transação sai do
+     * endToEndId e é só aproximada.
      */
     public function paidAt(): ?Carbon
     {
-        $time = data_get($this->sourcePayload(DossierSource::WOOVI_TRANSACTION), 'time')
+        $charge = $this->sourcePayload(DossierSource::WOOVI_CHARGE);
+
+        $time = (data_get($charge, 'provider') === 'transfeera' ? data_get($charge, 'paidAt') : null)
+            ?? data_get($this->sourcePayload(DossierSource::WOOVI_TRANSACTION), 'time')
             ?? data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'paid_at')
             ?? data_get($this->sourcePayload(DossierSource::UNICOPAG_SALE), 'created_at');
 

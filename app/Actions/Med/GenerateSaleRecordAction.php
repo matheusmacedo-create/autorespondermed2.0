@@ -67,12 +67,14 @@ class GenerateSaleRecordAction
         $payerTaxId = data_get($transaction, 'payer.taxID.taxID');
         // Cliente da cobrança, não `transaction.customer` (que é o próprio pagador).
         $customer = (array) ($charge['customer'] ?? []);
+        // Transfeera: a cobrança é o QR Code, e a hora certa do pagamento é a liquidação dela.
+        $fromTransfeera = data_get($charge, 'provider') === 'transfeera';
 
         return [
             'endToEndId' => $dispute->end_to_end_id,
             'payment' => array_filter([
                 'Valor' => $this->money(data_get($transaction, 'value')),
-                'Pago em' => $this->date(data_get($transaction, 'time')),
+                'Pago em' => $this->date(($fromTransfeera ? data_get($charge, 'paidAt') : null) ?? data_get($transaction, 'time')),
                 'Identificador da cobrança (txid)' => data_get($transaction, 'transactionID'),
                 'Mensagem do pagador' => data_get($transaction, 'infoPagador'),
             ]),
@@ -83,7 +85,7 @@ class GenerateSaleRecordAction
             'charge' => $charge === null ? [] : array_filter([
                 'Criada pelo recebedor em' => $this->date($charge['createdAt'] ?? null),
                 'Valor cobrado' => $this->money($charge['value'] ?? null),
-                'Identificador do pedido (correlationID)' => $charge['correlationID'] ?? null,
+                ($fromTransfeera ? 'Identificador da cobrança (QR Code)' : 'Identificador do pedido (correlationID)') => $charge['correlationID'] ?? null,
                 'Descrição' => $charge['comment'] ?? null,
             ]),
             'chargeInfo' => collect((array) ($charge['additionalInfo'] ?? []))

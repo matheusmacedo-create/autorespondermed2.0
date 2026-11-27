@@ -553,20 +553,38 @@ pelo `integration_id`, nem pelo `txid`, nem pelo endToEndId: a rota só conhece 
 fica sem lojista, produto, política da loja e conferência do pagador - pedir ao unico-api a busca das vendas da
 Transfeera (o `integration_id` do Pix é dele).
 
+**Primeiras respostas aceitas (27/11/2026, 12:27-12:28)** `[produção]`: as 6 infrações pendentes foram contestadas
+pelo `med:responder` (primeiro a de prazo mais próximo, conferida, depois as outras cinco). O que a API real mostrou:
+- O campo do arquivo é mesmo **`attachments`**, e o `.zip` é aceito. A infração passa a trazer
+  **`files: [{name, signed_url}]`** (link assinado do S3 da Transfeera): baixando por ele, o zip abriu com os 3 PDFs
+  (carta, comprovante, registro da venda). É por esse campo que se confere se o anexo chegou.
+- Depois do envio: `analysis_status: rejected`, `analysis_date` preenchida, `analysis_description` idêntica ao
+  texto enviado (até 1.439 caracteres foram aceitos) e `user.name` com o usuário dono da credencial da API. O
+  `status` continua `pending` até a Transfeera decidir.
+- A venda segue sem ser achada no unico-api: as seis saíram só com o Pix localizado e o QR Code de cobrança como
+  fatos, sem lojista, produto nem política da loja.
+- **Webhook não cadastrado em produção** (decisão pendente): a conta já tem um webhook do unico-api para
+  `Infraction`, e a doc não diz se dois webhooks do mesmo tipo convivem. Até lá a infração nova entra pela
+  sincronização de hora em hora, que basta para o prazo de 96h.
+
 **Em aberto (conferir com chamada real ou com o suporte da Transfeera):**
-1. Se o campo do arquivo no multipart é mesmo `attachments` (a recusa de 27/11 foi pela quantidade, o que indica
-   que o nome foi reconhecido) - confirmar no primeiro envio aceito.
-2. Tamanho máximo de `analysis_description` e se os 15 MB são por arquivo ou do envio.
+1. Se dois webhooks com o mesmo tipo de objeto (`Infraction`) convivem na mesma conta - perguntar ao suporte antes
+   de cadastrar o do MED ao lado do que o unico-api já tem.
+2. Tamanho máximo de `analysis_description` (1.439 caracteres passaram; o corte está em 4.000).
 3. Se `delayed` ainda aceita análise (hoje o `med:responder` não tenta; o botão da ficha tenta).
-4. Se o IP do servidor de produção do MED precisa ser liberado (deste ambiente as leituras passaram sem mTLS).
+4. ~~IP e mTLS~~ - resolvido em 27/11: o servidor de produção leu e respondeu por `api.transfeera.com`, sem mTLS
+   e sem liberação de IP.
 5. Se um mesmo endToEndId pode ter mais de uma infração (o caso é por id da infração, então não se misturam).
-6. Se o unico-api acha a venda de um Pix da Transfeera pela rota `/api/med/sales/lookup` (por `txid`,
-   `integration_id` ou endToEndId). Sem a venda não há lojista, produto nem conferência do pagador.
+6. O unico-api **não acha** a venda de Pix da Transfeera em `/api/med/sales/lookup` (testado em 27/11 por `txid`,
+   `integration_id` e endToEndId): pedir a busca ao unico-api. Sem a venda não há lojista, produto, política da
+   loja nem conferência do pagador.
 7. Não há como simular infração no sandbox pela doc: pedir ao suporte.
 8. O comprovante `/pub/receipt/...` é público pelo link; não há rota documentada para emiti-lo de novo.
 
 ## Histórico de atualizações
 
+- **2026-11-27** - Transfeera em produção (seção 12): site do Forge na `main`, conta cadastrada, um arquivo só por
+  análise (zip), 6 infrações contestadas e conferidas pelo campo `files`; placar passa a separar as instituições.
 - **2026-11-26** - Transfeera como segunda instituição (seção 12): `provider` na conta, webhook `Infraction`,
   sincronização, dossiê pelo Pix recebido e resposta em uma chamada (`analysis=rejected`).
 - **2026-11-26** - SQLite de produção com WAL, busy_timeout e transação IMMEDIATE (seção 7).

@@ -530,6 +530,28 @@ class TransfeeraFlowTest extends TestCase
         $this->assertSame('missing', $checks['charge_linked']['status']);
     }
 
+    public function test_scoreboard_separates_institutions_and_uses_the_infraction_deadline(): void
+    {
+        $woovi = WooviAccount::factory()->create(['last_synced_at' => now()]);
+        $this->account->forceFill(['last_synced_at' => now()])->save();
+
+        Dispute::factory()->count(2)->create(['woovi_account_id' => $woovi->id, 'status' => DisputeStatus::EVIDENCE_SENT, 'evidence_sent_at' => now()->subDay()]);
+        $this->openCase(['status' => DisputeStatus::EVIDENCE_SENT, 'evidence_sent_at' => now()]);
+
+        // Sem resposta, os dois abertos há 5 dias: o da Woovi já passou das 96h; o da
+        // Transfeera vale o prazo da própria infração, que é amanhã.
+        Dispute::factory()->create(['woovi_account_id' => $woovi->id, 'opened_at' => now()->subDays(5)]);
+        $this->openCase(['woovi_dispute_id' => 'sem-resposta', 'status' => DisputeStatus::PENDING_SELLER, 'opened_at' => now()->subDays(5), 'respond_by' => now()->addDay()]);
+
+        $this->artisan('med:placar')
+            ->expectsOutputToContain(' · Transfeera lida às ')
+            ->expectsOutputToContain('Respondidos desde')
+            ->expectsOutputToContain('por instituição: Woovi 2 · Transfeera 1')
+            ->expectsOutputToContain('ainda no prazo            1 · R$ 250,00')
+            ->expectsOutputToContain('prazo vencido             1 · R$ 150,00')
+            ->assertSuccessful();
+    }
+
     public function test_batch_answer_uses_the_deadline_of_the_infraction(): void
     {
         config(['med.resposta_automatica.incluir_nao_defender' => true]);

@@ -58,11 +58,11 @@ class MedPanelTest extends TestCase
 
         Livewire::test(MedResultsWidget::class)
             ->assertOk()
-            ->assertSeeInOrder(['Respondidos à Woovi', '4', 'R$ 600,00'])
+            ->assertSeeInOrder(['Respondidos', '4', 'R$ 600,00'])
             ->assertSeeInOrder(['Aguardando decisão', '2', 'R$ 300,00'])
             ->assertSeeInOrder(['Ganhos', '1', 'R$ 150,00 mantidos · 50% dos decididos'])
             ->assertSeeInOrder(['Perdidos', '1', 'R$ 150,00 devolvidos ao pagador'])
-            ->assertSee('a Woovi decidiu 1 MED(s) da janela - 1 ganho(s) e 0 perdido(s)');
+            ->assertSee('1 MED(s) da janela foram decididos - 1 ganho(s) e 0 perdido(s)');
 
         $this->get('/admin')->assertOk()->assertSee('Resultado das respostas');
     }

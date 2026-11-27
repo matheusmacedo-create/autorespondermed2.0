@@ -28,6 +28,17 @@ class DisputeStatusTest extends TestCase
         }
     }
 
+    public function test_only_open_and_seller_answered_cases_still_await_the_response(): void
+    {
+        foreach (DisputeStatus::cases() as $status) {
+            $this->assertSame(
+                in_array($status, [DisputeStatus::PENDING_SELLER, DisputeStatus::SELLER_SUBMITTED], true),
+                $status->awaitsResponse(),
+                $status->value,
+            );
+        }
+    }
+
     public function test_closed_statuses_cannot_be_sent_to_woovi(): void
     {
         foreach (DisputeStatus::closed() as $status) {

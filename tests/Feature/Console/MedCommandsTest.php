@@ -103,8 +103,32 @@ class MedCommandsTest extends TestCase
             ->expectsOutputToContain('taxa de ganho: 50% dos decididos')
             ->expectsOutputToContain('ainda no prazo            1 · R$ 150,00')
             ->expectsOutputToContain('prazo vencido             1 · R$ 150,00')
+            // Linha que só existe quando algum caso foi respondido fora daqui.
+            ->doesntExpectOutputToContain('respondidos fora daqui')
             ->expectsOutputToContain('Decisões nas respondidas, últimas 24h: 1')
             ->expectsOutputToContain('Mega Store - Contestação rejeitada')
+            ->assertSuccessful();
+    }
+
+    public function test_scoreboard_counts_unanswered_chargebacks_like_the_meds(): void
+    {
+        config(['med.janela_dias' => 14]);
+
+        // Sem resposta nossa: um MED ainda no prazo e um chargeback que passou das 96h da Woovi.
+        Dispute::factory()->create(['opened_at' => now()->subDay()]);
+        Dispute::factory()->create(['type' => 'CHARGEBACK', 'value' => 19391, 'opened_at' => now()->subDays(10)]);
+        // Chargeback decidido sem resposta nossa: entra na comparação.
+        Dispute::factory()->create(['type' => 'CHARGEBACK', 'value' => 19391, 'status' => DisputeStatus::ACCEPTED, 'woovi_status' => 'ACCEPTED', 'opened_at' => now()->subDays(6), 'closed_at' => now()->subDay()]);
+        // Tipo que o med:responder não responde: não é resposta que faltou.
+        Dispute::factory()->create(['type' => 'DISPUTE', 'value' => 7700, 'opened_at' => now()->subDays(10)]);
+        Dispute::factory()->create(['type' => 'DISPUTE', 'value' => 7700, 'status' => DisputeStatus::ACCEPTED, 'woovi_status' => 'ACCEPTED', 'opened_at' => now()->subDays(6), 'closed_at' => now()->subDay()]);
+
+        $this->artisan('med:placar')
+            ->expectsOutputToContain('Sem resposta nossa (MEDs e chargebacks abertos desde ')
+            ->expectsOutputToContain('ainda no prazo            1 · R$ 150,00')
+            ->expectsOutputToContain('prazo vencido             1 · R$ 193,91')
+            ->expectsOutputToContain('decididos: ganhos         0 · R$ 0,00')
+            ->expectsOutputToContain('decididos: perdidos       1 · R$ 193,91')
             ->assertSuccessful();
     }
 

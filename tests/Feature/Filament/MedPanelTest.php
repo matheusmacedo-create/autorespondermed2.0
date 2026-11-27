@@ -62,9 +62,47 @@ class MedPanelTest extends TestCase
             ->assertSeeInOrder(['Aguardando decisão', '2', 'R$ 300,00'])
             ->assertSeeInOrder(['Ganhos', '1', 'R$ 150,00 mantidos · 50% dos decididos'])
             ->assertSeeInOrder(['Perdidos', '1', 'R$ 150,00 devolvidos ao pagador'])
-            ->assertSee('1 MED(s) da janela foram decididos - 1 ganho(s) e 0 perdido(s)');
+            ->assertSee('1 caso(s) da janela (MED e chargeback) foram decididos - 1 ganho(s) e 0 perdido(s)');
 
         $this->get('/admin')->assertOk()->assertSee('Resultado das respostas');
+    }
+
+    public function test_results_widget_compares_with_unanswered_chargebacks_too(): void
+    {
+        // Decididos sem defesa nossa: o chargeback entra na comparação junto com o MED.
+        Dispute::factory()->create(['status' => DisputeStatus::REJECTED, 'woovi_status' => 'REJECTED', 'closed_at' => now()]);
+        Dispute::factory()->create(['type' => 'CHARGEBACK', 'status' => DisputeStatus::ACCEPTED, 'woovi_status' => 'ACCEPTED', 'closed_at' => now()]);
+        // Tipo que o med:responder não responde: não é defesa que faltou.
+        Dispute::factory()->create(['type' => 'DISPUTE', 'status' => DisputeStatus::ACCEPTED, 'woovi_status' => 'ACCEPTED', 'closed_at' => now()]);
+        // Chargeback ainda aberto, de prazo vencido: sem decisão, não entra na comparação.
+        Dispute::factory()->create(['type' => 'CHARGEBACK', 'opened_at' => now()->subDays(10)]);
+
+        Livewire::test(MedResultsWidget::class)
+            ->assertOk()
+            // Perdido sem resposta nossa não vira "Perdidos": o placar é do que foi respondido.
+            ->assertSee('R$ 0,00 devolvidos ao pagador')
+            ->assertSee('2 caso(s) da janela (MED e chargeback) foram decididos - 1 ganho(s) e 1 perdido(s)');
+    }
+
+    public function test_results_widget_treats_what_was_answered_elsewhere_as_not_ours(): void
+    {
+        $transfeera = WooviAccount::factory()->transfeera()->create();
+
+        // Respondida no painel da Transfeera, ainda sem decisão: nem resposta nossa, nem decidida.
+        Dispute::factory()->for($transfeera)->create(['status' => DisputeStatus::EVIDENCE_SENT, 'woovi_status' => 'PENDING']);
+        // Respondida fora e já decidida a favor do lojista: decidida sem defesa nossa.
+        Dispute::factory()->for($transfeera)->create(['status' => DisputeStatus::REJECTED, 'woovi_status' => 'DISAGREED', 'closed_at' => now()]);
+
+        Livewire::test(MedResultsWidget::class)
+            ->assertOk()
+            // Nenhuma das duas (R$ 150,00 cada) soma em respondidos, aguardando, ganhos ou perdidos.
+            ->assertSee('R$ 0,00 bloqueados até a decisão')
+            ->assertSee('R$ 0,00 mantidos')
+            ->assertSee('R$ 0,00 devolvidos ao pagador')
+            ->assertDontSee('R$ 150,00')
+            ->assertDontSee('R$ 300,00')
+            // Só a decidida entra na comparação.
+            ->assertSee('1 caso(s) da janela (MED e chargeback) foram decididos - 1 ganho(s) e 0 perdido(s)');
     }
 
     public function test_case_page_shows_the_defense_evidence_and_timeline(): void

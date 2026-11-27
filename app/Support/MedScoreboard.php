@@ -13,8 +13,15 @@ use Illuminate\Support\Collection;
  *
  * Respondido é o que saiu para a instituição da conta - Woovi ou Transfeera - (desde o
  * primeiro envio, fora da janela também: caso enviado nunca é podado). Ganho = REJECTED
- * (o lojista manteve o valor), perdido = ACCEPTED (devolvido ao pagador). O que ficou sem resposta nossa conta à parte, só os
- * MEDs da janela, para comparar.
+ * (o lojista manteve o valor), perdido = ACCEPTED (devolvido ao pagador). O que ficou sem
+ * resposta nossa conta à parte, para comparar: só os casos da janela, e só dos tipos que
+ * o sistema responde (MED e chargeback, `Dispute::DEFENDED_TYPES`).
+ *
+ * Sem resposta nossa não quer dizer sem resposta: a infração respondida fora daqui (no
+ * painel da Transfeera) fica em "Resposta enviada" sem `evidence_sent_at`. Ela não entra
+ * nos respondidos nem é prazo correndo ou perdido ({@see unansweredOpen()}); até a
+ * decisão conta à parte ({@see answeredElsewhere()}) e, decidida, entra nos ganhos e
+ * perdidos sem resposta nossa - foi decidida sem defesa deste sistema.
  */
 final class MedScoreboard
 {
@@ -35,7 +42,11 @@ final class MedScoreboard
 
         return new self(
             Dispute::query()->with('wooviAccount:id,provider')->whereNotNull('evidence_sent_at')->get($columns),
-            Dispute::query()->with('wooviAccount:id,provider')->inWindow()->whereNull('evidence_sent_at')->where('type', 'MED')->get($columns),
+            // "Sem resposta" só dos tipos que o sistema responde, pelo mesmo teste do
+            // `med:responder`: com uma lista à parte aqui (`type = MED`), o chargeback
+            // sem resposta sumia do placar.
+            Dispute::query()->with('wooviAccount:id,provider')->inWindow()->whereNull('evidence_sent_at')->get($columns)
+                ->filter(fn (Dispute $dispute): bool => $dispute->isDefendedType()),
         );
     }
 
@@ -85,7 +96,10 @@ final class MedScoreboard
     }
 
     /**
-     * Sem resposta nossa e ainda sem decisão: `true` = o prazo da instituição ainda corre.
+     * Ainda esperando resposta: `true` = o prazo da instituição ainda corre, `false` = o
+     * prazo passou sem resposta. Só o que espera resposta de verdade
+     * (`DisputeStatus::awaitsResponse()`): tirar apenas os encerrados deixava aqui o
+     * respondido fora daqui, como prazo correndo e depois como prazo perdido.
      *
      * @return Collection<int, Dispute>
      */
@@ -94,11 +108,24 @@ final class MedScoreboard
         $hours = (int) config('med.prazo_woovi_horas');
 
         return $this->unanswered
-            ->reject(fn (Dispute $dispute): bool => $dispute->status->isClosed())
+            ->filter(fn (Dispute $dispute): bool => $dispute->status->awaitsResponse())
             // Transfeera: o prazo é o da própria infração (`respond_by`).
             ->filter(fn (Dispute $dispute): bool => $withinDeadline === (bool) ($dispute->provider() === Provider::TRANSFEERA
                 ? $dispute->respond_by?->isFuture()
                 : $dispute->opened_at?->copy()->addHours($hours)->isFuture()));
+    }
+
+    /**
+     * Respondidos fora deste sistema e ainda sem decisão: "Resposta enviada" sem
+     * `evidence_sent_at`, como a ingestão deixa a infração que chega com a análise já
+     * registrada na Transfeera (`IngestDisputeAction`). Decididos, saem daqui para os
+     * ganhos e perdidos sem resposta nossa.
+     *
+     * @return Collection<int, Dispute>
+     */
+    public function answeredElsewhere(): Collection
+    {
+        return $this->unanswered->filter(fn (Dispute $dispute): bool => $dispute->status === DisputeStatus::EVIDENCE_SENT);
     }
 
     /**

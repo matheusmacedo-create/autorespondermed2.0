@@ -10,7 +10,8 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  * O placar das respostas (`MedScoreboard`): quanto foi respondido (Woovi e Transfeera), quanto ainda
  * espera decisão, quanto o banco recusou (ganho: o lojista manteve o valor) e quanto
  * aceitou (perdido: devolvido ao pagador). O decidido sem resposta nossa fica no
- * subtítulo, para comparar.
+ * subtítulo, para comparar - inclusive o que foi respondido fora daqui (painel da
+ * Transfeera), que não conta em nenhum dos quatro números.
  */
 class MedResultsWidget extends StatsOverviewWidget
 {
@@ -52,6 +53,6 @@ class MedResultsWidget extends StatsOverviewWidget
         $won = $board->won($board->unanswered)->count();
         $lost = $board->lost($board->unanswered)->count();
 
-        return 'Para comparar: sem defesa nossa, '.($won + $lost)." MED(s) da janela foram decididos - {$won} ganho(s) e {$lost} perdido(s).";
+        return 'Para comparar: sem defesa nossa, '.($won + $lost)." caso(s) da janela (MED e chargeback) foram decididos - {$won} ganho(s) e {$lost} perdido(s).";
     }
 }

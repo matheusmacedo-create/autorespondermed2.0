@@ -23,6 +23,13 @@ class Dispute extends Model
     /** @use HasFactory<DisputeFactory> */
     use HasFactory;
 
+    /**
+     * Tipos de disputa que o sistema responde: chargeback se defende igual ao MED
+     * (decisão da operação em 06/11/2026). Lista única para o `med:responder` e para o
+     * "sem resposta nossa" do placar: o que um responde, o outro cobra.
+     */
+    public const DEFENDED_TYPES = ['MED', 'CHARGEBACK'];
+
     /** Loja do lojista, lida uma vez por instância ({@see merchantStore()}). */
     private ?MerchantStore $merchantStore = null;
 
@@ -193,6 +200,14 @@ class Dispute extends Model
     public function provider(): Provider
     {
         return $this->wooviAccount?->provider ?? Provider::WOOVI;
+    }
+
+    /**
+     * O caso é de um tipo que o sistema responde ({@see self::DEFENDED_TYPES}).
+     */
+    public function isDefendedType(): bool
+    {
+        return in_array(strtoupper((string) $this->type), self::DEFENDED_TYPES, true);
     }
 
     public function wooviAccount(): BelongsTo

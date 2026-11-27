@@ -51,15 +51,15 @@ final class MedScoreboard
     }
 
     /**
-     * Quantos casos por instituição ("Woovi 252 · Transfeera 6"). Vazio quando todos
-     * são de uma só: aí o total já diz tudo.
+     * Quantos casos por instituição, a de mais casos primeiro ("Woovi 252 · Transfeera
+     * 6"). Vazio quando todos são de uma só: aí o total já diz tudo.
      */
     public static function byProvider(Collection $disputes): string
     {
         $counts = $disputes->countBy(fn (Dispute $dispute): string => $dispute->provider()->label());
 
         return $counts->count() > 1
-            ? $counts->sortKeys()->map(fn (int $count, string $label): string => "{$label} {$count}")->reverse()->implode(' · ')
+            ? $counts->sortKeys()->sortDesc()->map(fn (int $count, string $label): string => "{$label} {$count}")->implode(' · ')
             : '';
     }
 

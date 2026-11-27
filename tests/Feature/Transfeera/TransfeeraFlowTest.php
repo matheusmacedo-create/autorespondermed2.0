@@ -45,6 +45,9 @@ class TransfeeraFlowTest extends TestCase
 
     private WooviAccount $account;
 
+    /** Liga para a Transfeera responder 404 na consulta da cobrança ({@see fakeCompleteCase()}). */
+    private bool $qrCodeMissing = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -384,6 +387,37 @@ class TransfeeraFlowTest extends TestCase
         $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($dispute, userId: null));
     }
 
+    public function test_attachment_limit_keeps_room_for_the_zip_only_when_there_is_one(): void
+    {
+        config(['services.transfeera.attachments_max_bytes' => 70_000]);
+        $this->fakeApi([
+            'api.transfeera.test/med/infractions/*/analysis' => Http::response($this->infraction(['analysis_status' => 'rejected'])),
+            'api.transfeera.test/med/infractions/segunda-infracao' => Http::response($this->infraction(['id' => 'segunda-infracao'])),
+        ]);
+
+        // Um arquivo só vai como está e pode usar o limite inteiro.
+        $single = $this->openCase(['defense_text' => null, 'seller_statement' => null]);
+        DisputeEvidence::factory()->for($single)->create(['original_name' => 'grande.pdf', 'size' => 69_000]);
+
+        $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($single, userId: null));
+
+        // Dois juntos viram zip: o conjunto precisa caber com a folga, e o que sobra sai do fim.
+        $two = $this->openCase(['woovi_dispute_id' => 'segunda-infracao', 'end_to_end_id' => 'E18236120202611201900s0133872GZB', 'defense_text' => null, 'seller_statement' => null]);
+        DisputeEvidence::factory()->for($two)->create(['original_name' => 'primeiro.pdf', 'size' => 3_000]);
+        DisputeEvidence::factory()->for($two)->create(['original_name' => 'segundo.pdf', 'size' => 4_000]);
+
+        $this->assertSame(1, app(SendEvidenceToWooviAction::class)->handle($two, userId: null));
+
+        $this->assertNotNull($two->evidences()->where('original_name', 'primeiro.pdf')->sole()->sent_at);
+        $this->assertNull($two->evidences()->where('original_name', 'segundo.pdf')->sole()->sent_at);
+        $this->assertTrue($two->events()->where('event', DisputeEventType::EVIDENCE_SEND_FAILED->value)->where('level', 'warning')->where('message', 'like', '%segundo.pdf%')->exists());
+        Http::assertSent(function (Request $request): bool {
+            $files = collect($request->data())->where('name', 'attachments')->values();
+
+            return str_ends_with($request->url(), '/analysis') && $files->count() === 1 && $files[0]['filename'] === 'primeiro.pdf';
+        });
+    }
+
     public function test_infraction_already_analyzed_is_never_answered_again(): void
     {
         $dispute = $this->openCase();
@@ -561,6 +595,164 @@ class TransfeeraFlowTest extends TestCase
         Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'sales/lookup')
             && str_contains($request->url(), 'correlation_id=pedido-42')
             && str_contains($request->url(), 'txid=6e43085c2bee41cb83029bb898f90da6'));
+    }
+
+    /**
+     * Cobrança Pix (QR Code) como a Transfeera devolve em `GET /pix/qrcode/{txid}`.
+     *
+     * @return array<string, mixed>
+     */
+    private function qrCode(array $overrides = []): array
+    {
+        return array_merge([
+            'id' => '956c88b0-b548-4880-a40a-56ae3e356fe7',
+            'qrcode_type' => 'COBRANCA_IMEDIATA',
+            'status' => 'CONCLUIDA',
+            'txid' => 'ybhgznw0msN2cnaw1Y9d000000',
+            'integration_id' => 'ybhgznw0ms',
+            'original_value' => 250.0,
+            'payer_question' => 'Processamento de pagamento',
+            'payer' => ['name' => 'João da Silva', 'document' => self::PAYER_CPF],
+            'additional_info' => null,
+            // Criada às 18:45:17 UTC e liquidada às 18:45:58 UTC, no mesmo minuto. A hora
+            // que sai do endToEndId do caso é 18:45:00: por ela a cobrança pareceria
+            // criada depois do pagamento.
+            'created_at' => '2026-11-20T18:45:17.000Z',
+            'settled_at' => '2026-11-20T15:45:58-03:00',
+            'pix_received' => ['id' => 'cashin-1', 'value' => 250.0, 'end2end_id' => self::E2E, 'txid' => 'ybhgznw0msN2cnaw1Y9d000000'],
+        ], $overrides);
+    }
+
+    /**
+     * API falsa do caso completo: Pix, cobrança, e a venda que o unico-api só acha
+     * pelo id da cobrança.
+     *
+     * @param  array<string, mixed>  $qrCode
+     */
+    private function fakeCompleteCase(array $qrCode, string $customerDocument = '591.368.460-58'): void
+    {
+        config([
+            'services.unicopag.key' => 'chave-med',
+            'services.unicopag.sale_endpoint' => '/api/med/sales/lookup?correlation_id={correlation_id}&end_to_end_id={end_to_end_id}&txid={txid}',
+        ]);
+
+        $this->fakeApi([
+            'api.transfeera.test/pix/cashin/*/refund' => Http::response(['entries' => []]),
+            'api.transfeera.test/pix/cashin/*' => Http::response([
+                'value' => 250.00, 'end2end_id' => self::E2E, 'txid' => 'ybhgznw0msN2cnaw1Y9d000000', 'integration_id' => 'ybhgznw0ms',
+                'payer' => ['name' => 'João da Silva', 'document' => '***.368.460-**'],
+            ]),
+            'api.transfeera.test/pix/qrcode/*' => fn () => $this->qrCodeMissing
+                ? Http::response(['message' => 'Not Found'], 404)
+                : Http::response($qrCode),
+            'unico-api.test/api/med/sales/lookup*' => fn (Request $request) => str_contains($request->url(), 'correlation_id=956c88b0-b548-4880-a40a-56ae3e356fe7')
+                ? Http::response(['data' => [
+                    'matched_by' => 'correlation_id', 'account_id' => '5826', 'amount_total' => 25000, 'payment_status' => 'refunded',
+                    'seller' => ['name' => 'ESTOKAZ LTDA', 'trade_name' => 'Mega Store', 'document' => '12345678000199', 'kyc_status' => 'approved'],
+                    'customer' => ['name' => 'João da Silva', 'document' => $customerDocument],
+                    'order' => ['id' => '#32367', 'product_type' => 'physical', 'items' => [['name' => 'Dentadura Premium', 'quantity' => 1, 'unit_amount' => 25000]]],
+                    'fulfillment' => ['status' => 'pending'],
+                ]])
+                : Http::response(['message' => 'not found'], 404),
+            // Com o lojista identificado pela venda, o KYC é consultado pela conta dele.
+            'kyc.test/api/onboarding/status*' => fn (Request $request) => str_contains($request->url(), 'account_id=5826')
+                ? Http::response(['success' => true, 'status' => 'approved'])
+                : Http::response([], 404),
+            '*' => Http::response([], 404),
+        ]);
+    }
+
+    public function test_charge_found_by_the_txid_links_the_sale_and_completes_the_dossier(): void
+    {
+        $dispute = $this->openCase(['status' => DisputeStatus::PENDING_SELLER, 'seller_submitted_at' => null, 'seller_statement' => null]);
+        $this->fakeCompleteCase($this->qrCode());
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        // A cobrança foi buscada pelo txid do Pix, e a venda pelo id dela.
+        Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/pix/qrcode/ybhgznw0msN2cnaw1Y9d000000'));
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'sales/lookup')
+            && str_contains($request->url(), 'correlation_id=956c88b0-b548-4880-a40a-56ae3e356fe7')
+            && str_contains($request->url(), 'txid=ybhgznw0msN2cnaw1Y9d000000'));
+
+        $charge = $dispute->sourcePayload(DossierSource::WOOVI_CHARGE);
+        $this->assertSame('956c88b0-b548-4880-a40a-56ae3e356fe7', $charge['correlationID']);
+        $this->assertSame(25000, $charge['value']);
+        $this->assertSame(self::PAYER_CPF, $charge['customer']['taxID']['taxID']);
+
+        // O lojista do caso vem da venda.
+        $this->assertSame('Mega Store', $dispute->merchantName());
+        $this->assertSame('5826', $dispute->merchant_account_id);
+        $this->assertSame('Dentadura Premium', $dispute->products());
+
+        $checks = collect($dispute->dossier_match['checks'])->keyBy('key');
+        foreach (['transaction_found', 'value_matches', 'charge_linked', 'charge_before_payment', 'payer_is_customer', 'no_refund', 'sale_found', 'sale_amount_matches', 'kyc_approved'] as $key) {
+            $this->assertSame('ok', $checks[$key]['status'], $key);
+        }
+        $this->assertSame('Quem pagou é o cliente da cobrança', $checks['payer_is_customer']['label']);
+        $this->assertSame('O pagamento quitou uma cobrança gerada pelo recebedor para a venda, e não foi uma transferência avulsa.', $checks['charge_linked']['fact']);
+        $this->assertTrue($dispute->dossier_match['ready']);
+
+        // A hora do pagamento é a liquidação da cobrança (com os segundos), não o minuto do endToEndId.
+        $this->assertSame('2026-11-20 18:45:58', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+        $this->assertStringContainsString('antes do pagamento', $checks['charge_before_payment']['detail']);
+
+        // Na ficha as fontes aparecem com a instituição certa.
+        $this->assertSame('Cobrança Pix (Transfeera)', DossierSource::WOOVI_CHARGE->labelFor($dispute->provider()));
+        $this->assertSame('Alegação do MED (Transfeera)', DossierSource::WOOVI_FUNDS_RECOVERY->labelFor($dispute->provider()));
+        $this->assertSame('Cobrança Pix (Woovi)', DossierSource::WOOVI_CHARGE->labelFor(Provider::WOOVI));
+    }
+
+    public function test_someone_else_paying_the_charge_is_a_divergence(): void
+    {
+        $dispute = $this->openCase();
+        // O devedor da cobrança é o cliente do pedido; quem pagou (o da infração) é outro.
+        $this->fakeCompleteCase($this->qrCode(['payer' => ['name' => 'Maria Cliente', 'document' => '12345678909']]), customerDocument: '123.456.789-09');
+
+        $checks = collect(app(BuildDossierAction::class)->handle($dispute)->dossier_match['checks'])->keyBy('key');
+
+        $this->assertSame('divergent', $checks['payer_is_customer']['status']);
+        $this->assertSame('CPF/CNPJ de quem pagou é diferente do cliente da cobrança.', $checks['payer_is_customer']['detail']);
+        $this->assertSame('ok', $checks['charge_linked']['status']);
+    }
+
+    public function test_charge_paid_by_another_pix_is_not_used(): void
+    {
+        $dispute = $this->openCase();
+        $this->fakeCompleteCase($this->qrCode(['pix_received' => ['end2end_id' => 'E00000000202611201845outroPix00000']]));
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        $this->assertNull($dispute->sourcePayload(DossierSource::WOOVI_CHARGE));
+        // Sem a cobrança, a venda é procurada pelo integration_id do Pix (e não é achada aqui).
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), 'sales/lookup') && str_contains($request->url(), 'correlation_id=ybhgznw0ms&'));
+        $this->assertNull($dispute->merchantName());
+        // E a hora do pagamento volta a ser a do endToEndId.
+        $this->assertSame('2026-11-20 18:45:00', $dispute->paidAt()->utc()->format('Y-m-d H:i:s'));
+    }
+
+    public function test_charge_missed_once_is_looked_up_again_and_then_links_the_sale(): void
+    {
+        $dispute = $this->openCase();
+
+        // Primeira montagem: a Transfeera não devolve a cobrança. O caso fica sem a venda.
+        $this->fakeCompleteCase($this->qrCode());
+        $this->qrCodeMissing = true;
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        $this->assertNull($dispute->sourcePayload(DossierSource::WOOVI_CHARGE));
+        $this->assertNull($dispute->merchantName());
+
+        // Montagem seguinte, sem pedir para refazer: a cobrança é procurada de novo e,
+        // com o id dela, a venda que antes "não existia" é achada.
+        $this->qrCodeMissing = false;
+
+        $dispute = app(BuildDossierAction::class)->handle($dispute);
+
+        $this->assertSame('956c88b0-b548-4880-a40a-56ae3e356fe7', $dispute->sourcePayload(DossierSource::WOOVI_CHARGE)['correlationID']);
+        $this->assertSame('Mega Store', $dispute->merchantName());
+        $this->assertSame('ok', collect($dispute->dossier_match['checks'])->firstWhere('key', 'sale_found')['status']);
     }
 
     public function test_payer_different_from_the_order_customer_is_a_divergence(): void

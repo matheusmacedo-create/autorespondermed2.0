@@ -32,6 +32,22 @@ enum DossierSource: string
         };
     }
 
+    /**
+     * O rótulo com a instituição do caso: as fontes `WOOVI_*` guardam também o que vem
+     * da Transfeera (Pix recebido, cobrança, devoluções, comprovante e infração).
+     */
+    public function labelFor(Provider $provider): string
+    {
+        if ($provider === Provider::WOOVI) {
+            return $this->label();
+        }
+
+        return match ($this) {
+            self::WOOVI_FUNDS_RECOVERY => "Alegação do MED ({$provider->label()})",
+            default => str_replace('(Woovi)', "({$provider->label()})", $this->label()),
+        };
+    }
+
     public static function label_for(?string $value): string
     {
         return self::tryFrom((string) $value)?->label() ?? (string) $value;

@@ -51,10 +51,18 @@ class MatchDossierAction
         // partir do próprio pagador e compará-lo com o pagador sempre "bateria".
         $customerTaxId = data_get($charge, 'customer.taxID.taxID');
         $institution = $dispute->provider()->label();
-        // Transfeera: não há cobrança com cliente cadastrado. O vínculo que dá para
-        // conferir é com o cliente do pedido na plataforma (cadastro independente do
-        // pagador), e a "cobrança" é o txid do QR Code que o Pix quitou.
-        $viaSale = data_get($transaction, 'provider') === 'transfeera';
+        // Transfeera: a cobrança é o QR Code que o Pix pagou, com o cliente do pedido
+        // como devedor. Se ela não foi localizada, o vínculo que resta é com o cliente
+        // do pedido na plataforma (cadastro independente do pagador), e a "cobrança" é
+        // o txid que o Pix quitou.
+        $isTransfeera = data_get($transaction, 'provider') === 'transfeera';
+        $viaSale = $isTransfeera && blank($customerTaxId);
+        // Na Transfeera a hora da transação sai do endToEndId e só tem o minuto: cobrança
+        // criada e paga no mesmo minuto pareceria "criada depois do pagamento". Para
+        // comparar com a cobrança, só vale a liquidação dela.
+        $paidAt = data_get($charge, 'provider') === 'transfeera'
+            ? data_get($charge, 'paidAt')
+            : data_get($transaction, 'time');
         $saleCustomerTaxId = data_get($sale, 'customer.document');
         $payerMatch = Mask::sameTaxId(data_get($transaction, 'payer.taxID.taxID'), $viaSale ? $saleCustomerTaxId : $customerTaxId);
 
@@ -73,12 +81,12 @@ class MatchDossierAction
 
             $this->check('charge_linked', 'Pix pagou uma cobrança do recebedor', false, match (true) {
                 $charge !== null => [self::OK, 'Pagamento de cobrança gerada pelo recebedor.'],
-                $viaSale && filled(data_get($transaction, 'transactionID')) => [self::OK, 'Pix pago por QR Code de cobrança (txid) do recebedor.', 'O pagamento foi feito por um QR Code de cobrança (txid) gerado pelo recebedor, e não por transferência avulsa.'],
+                $isTransfeera && filled(data_get($transaction, 'transactionID')) => [self::OK, 'Pix pago por QR Code de cobrança (txid) do recebedor.', 'O pagamento foi feito por um QR Code de cobrança (txid) gerado pelo recebedor, e não por transferência avulsa.'],
                 $transaction !== null && data_get($transaction, 'charge') === null => [self::MISSING, 'Pix avulso (direto na chave), sem cobrança.'],
                 default => [self::MISSING, 'Cobrança não obtida.'],
             }, 'O pagamento quitou uma cobrança gerada pelo recebedor para a venda, e não foi uma transferência avulsa.'),
 
-            $this->check('charge_before_payment', 'Cobrança criada antes do pagamento', false, $this->before(data_get($charge, 'createdAt'), data_get($transaction, 'time')), 'A cobrança foi criada antes do pagamento, no fluxo normal de uma compra.'),
+            $this->check('charge_before_payment', 'Cobrança criada antes do pagamento', false, $this->before(data_get($charge, 'createdAt'), $paidAt), 'A cobrança foi criada antes do pagamento, no fluxo normal de uma compra.'),
 
             $this->check('payer_is_customer', $viaSale ? 'Quem pagou é o cliente do pedido' : 'Quem pagou é o cliente da cobrança', true, match (true) {
                 $payerMatch === true && $viaSale => [self::OK, 'Mesmo CPF/CNPJ no pagamento e no pedido da plataforma.', 'O CPF/CNPJ de quem pagou é o mesmo do cliente cadastrado no pedido.'],
